@@ -264,13 +264,19 @@ it by:
 ## Code dictionary reference
 
 The parser does **not** validate codes against the dictionary at parse time —
-it only flags unknowns. The dictionary lives at `src/codes.ts` (per design
-doc). V1 dictionary covers:
+it only flags unknowns. The dictionary lives at `src/codes.ts`; the
+human-readable source of truth is `docs/Codes.md`. V1 dictionary covers:
 
-`N13, Nw13, N46, Nw46, L1–L6, Lw1–Lw6, C1–C6, Cw1–Cw6, T, T2, X, V, CP, CHV,
-SIM, FI, FE, MAL, CAR, °C2`
+`N13, Nw13, N46, Nw46, L1–L6, Lw1–Lw6, C1–C6, Cw1–Cw6, T, T2, P, E, DTC,
+SIM, V, SC, FI, FE, CHV, CAR, X, MAL, CP`
 
-(See design doc §"Codes mapping (V1)" for shift-time interpretations.)
+(See `docs/Codes.md` for shift hours and `src/codes.ts` for the executable
+mapping.)
+
+`°` and `*` prefixes are NOT separate codes — they mark a shift as
+"to be confirmed". The parser preserves them as raw strings; the iCal
+generator strips the prefix and looks up the base code, then emits
+`STATUS:TENTATIVE`.
 
 Anything else → goes into `unknown_codes`. Frontend will surface this so the
 user can either edit the dictionary (V2) or accept the cell as ignored.
