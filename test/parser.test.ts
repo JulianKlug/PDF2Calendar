@@ -9,7 +9,6 @@ import { resolve } from "node:path";
 
 import { parse } from "../src/parser.ts";
 import { isKnownCode, V1_CODES } from "../src/codes.ts";
-import { ParseError } from "../src/types.ts";
 
 const MAY = "example_data/1_mai_21.04.2026.pdf";
 const MARS_AVRIL = "example_data/5_Mars2026_26.03_30.04.2026.pdf";
@@ -106,6 +105,30 @@ describe("parse(): Phase B — people, cells, unknown codes", () => {
       expect(p.days[0]!.date).toBe("2026-05-01");
       expect(p.days[30]!.date).toBe("2026-05-31");
     }
+  });
+
+  test("Klug, J: narrow codes land in the correct column (column-center bug)", async () => {
+    // Regression: day-number text is right-anchored in its column while codes
+    // are left-anchored. Earlier the parser used the day-number's geometric
+    // center as the column center, which pulled 1- and 2-char codes (L2, C2,
+    // T, X, V, V2…) one column to the left. The user spotted L2 on 04-21
+    // when it should have been on 04-22.
+    const r = await parse(await load(MARS_AVRIL));
+    const klug = r.people.find((p) => p.name === "Klug, J")!;
+    const byDate = (d: string) => klug.days.find((x) => x.date === d)?.codes ?? [];
+
+    // The user-confirmed case + the rest of the narrow codes that the
+    // geometry predicts should also shift by +1 day.
+    expect(byDate("2026-04-22")).toEqual(["L2"]);
+    expect(byDate("2026-04-21")).toEqual([]);
+    expect(byDate("2026-03-30")).toEqual(["L2"]);
+    expect(byDate("2026-03-29")).toEqual([]);
+    expect(byDate("2026-04-13")).toEqual(["T"]);
+    expect(byDate("2026-04-27")).toEqual(["X"]);
+    expect(byDate("2026-04-30")).toEqual(["V"]);
+    // Wider codes (3+ chars) were already correctly placed and must not move.
+    expect(byDate("2026-03-23")).toEqual(["N13"]);
+    expect(byDate("2026-04-17")).toEqual(["Nw13"]);
   });
 
   test("unknown_codes is sorted, deduped, and contains no V1 dictionary entries", async () => {

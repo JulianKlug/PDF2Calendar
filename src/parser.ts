@@ -193,6 +193,7 @@ export function parsePages(
 type DayToken = {
   day: number;
   x_center: number;
+  x_right: number;  // day-number right edge — column is right-anchored to this
   y: number;
   height: number;
 };
@@ -235,6 +236,7 @@ function findDayRow(page: RawPage): DayRow {
     .map((it) => ({
       day: +it.str.trim(),
       x_center: it.x + it.width / 2,
+      x_right: it.x + it.width,
       y: it.y,
       height: it.height,
     }))
@@ -328,7 +330,8 @@ function findWeekdayRowY(page: RawPage, dayRow: DayRow): YBand | null {
 type Column = {
   page: number;
   index: number;        // index within page
-  x_center: number;
+  x_center: number;     // day-number text center (kept for outer-bound checks)
+  x_right: number;      // day-number right edge — drives true column center
   day: number;
   month: number;
   year: number;
@@ -363,7 +366,7 @@ function assignDates(
       }
       columns.push({
         page: page.page, index: i,
-        x_center: tok.x_center, day: tok.day,
+        x_center: tok.x_center, x_right: tok.x_right, day: tok.day,
         month: band.month, year: band.year,
       });
     }
@@ -400,7 +403,7 @@ function assignDates(
     prevDay = tok.day;
     columns.push({
       page: page.page, index: i,
-      x_center: tok.x_center, day: tok.day, month, year,
+      x_center: tok.x_center, x_right: tok.x_right, day: tok.day, month, year,
     });
   }
   return columns;
@@ -497,9 +500,12 @@ function findPersonRows(
 
 function medianColWidth(columns: Column[]): number {
   if (columns.length < 2) return 16; // sensible default; never hit on real PDFs
+  // Use right-edge diffs: day numbers are right-anchored within columns, so
+  // x_right is a stable per-column landmark. x_center diffs vary at 1-/2-digit
+  // day transitions because narrower numerals pull the geometric center inward.
   const diffs: number[] = [];
   for (let i = 1; i < columns.length; i++) {
-    diffs.push(columns[i]!.x_center - columns[i - 1]!.x_center);
+    diffs.push(columns[i]!.x_right - columns[i - 1]!.x_right);
   }
   diffs.sort((a, b) => a - b);
   return diffs[Math.floor(diffs.length / 2)]!;
@@ -510,21 +516,29 @@ function extractCells(
   columns: Column[],
   colWidth: number,
 ): string[][] {
-  // For each column, collect items whose x_center falls within ±colWidth/2
-  // of the column's x_center. Items outside any catch range (e.g. pre-column
-  // role/name or post-column total) are silently dropped — caller already
-  // excluded them from the input set.
+  // The column is right-anchored to the day-number's right edge (x_right);
+  // its true center is `x_right - colWidth/2`. Using the day-number's text
+  // center (x_center) instead biases the column center rightward by half a
+  // digit-width, which pushes narrower codes (e.g. "L2", "C2", single-letter
+  // codes) into the *previous* column.
   const half = colWidth / 2;
   const cells: string[][] = columns.map(() => []);
   const sorted = items.slice().sort((a, b) => a.x - b.x);
   for (const it of sorted) {
     const xc = it.x + it.width / 2;
+    let bestIdx = -1;
+    let bestDist = Infinity;
     for (let i = 0; i < columns.length; i++) {
-      if (Math.abs(xc - columns[i]!.x_center) <= half) {
-        const trimmed = it.str.trim();
-        if (trimmed) cells[i]!.push(trimmed);
-        break;
+      const center = columns[i]!.x_right - half;
+      const dist = Math.abs(xc - center);
+      if (dist <= half && dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
       }
+    }
+    if (bestIdx >= 0) {
+      const trimmed = it.str.trim();
+      if (trimmed) cells[bestIdx]!.push(trimmed);
     }
   }
   return cells;

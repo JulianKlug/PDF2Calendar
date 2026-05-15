@@ -82,6 +82,7 @@ export const codes: Record<string, Code> = {
 
   // All-day events
   V: { kind: "allday", title: "Vacation" },
+  V2: { kind: "allday", title: "Vacation" },
   SC: { kind: "allday", title: "Soins Continus DC" },
   FI: { kind: "allday", title: "Formation interne" },
   FE: { kind: "allday", title: "Formation externe" },

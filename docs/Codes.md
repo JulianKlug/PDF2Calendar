@@ -33,6 +33,7 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 ## All-day events
 
 - `V` — Vacation
+- `V2` — Vacation (variant; same as `V`)
 - `SC` — Soins Continus DC
 - `FI` — Formation interne
 - `FE` — Formation externe
