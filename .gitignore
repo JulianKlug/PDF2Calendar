@@ -1,2 +1,7 @@
 example_data/
 node_modules/
+dist/
+out/
+.env
+.env.local
+.env.*.local

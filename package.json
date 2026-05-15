@@ -4,9 +4,17 @@
   "type": "module",
   "scripts": {
     "probe": "bun scripts/probe.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.13",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
   }
 }
