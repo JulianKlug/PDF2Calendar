@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { generate, IcsError, type GenerateInput } from "../src/ics.ts";
+import { generate, mergeIcs, IcsError, type GenerateInput } from "../src/ics.ts";
 import { codes as V1, type Code } from "../src/codes.ts";
 import type { ParsedPerson } from "../src/types.ts";
 import { parse } from "../src/parser.ts";
@@ -362,6 +362,173 @@ describe("generate(): validation errors", () => {
       BAD: { kind: "timed", title: "broken", start: "8:00", end: "17:00" },
     };
     expect(() => generate(makeInput({ codes: bad }))).toThrow(IcsError);
+  });
+});
+
+describe("mergeIcs(): multi-month preservation", () => {
+  // Drop-range is the new upload's date_range. VEVENTs from `existing` whose
+  // DTSTART falls within it are dropped; everything else is preserved verbatim.
+
+  function freshFor(
+    days: Array<{ date: string; codes: string[] }>,
+  ): GenerateInput {
+    return makeInput({ person: makePerson(days) });
+  }
+
+  test("existing === null → returns freshIcs unchanged", () => {
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["C2"] }]);
+    const merged = mergeIcs(null, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    expect(merged).toBe(generate(fresh));
+  });
+
+  test("existing has zero VEVENTs → returns freshIcs unchanged", () => {
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["C2"] }]);
+    const empty = generate(freshFor([]));
+    const merged = mergeIcs(empty, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    expect(merged).toBe(generate(fresh));
+  });
+
+  test("disjoint ranges (March existing, May fresh) → both preserved", () => {
+    const march = generate(freshFor([{ date: "2026-03-10", codes: ["C2"] }]));
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["L3"] }]);
+    const merged = mergeIcs(march, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    const evs = vevents(merged);
+    expect(evs).toHaveLength(2);
+    expect(evs[0]).toContain("DTSTART;TZID=Europe/Zurich:20260310");
+    expect(evs[1]).toContain("DTSTART;TZID=Europe/Zurich:20260515");
+  });
+
+  test("overlapping ranges → old April dropped, new April replaces", () => {
+    // Existing: April 15 has C2. New upload covers all of April; April 15 now has L3.
+    const old = generate(freshFor([{ date: "2026-04-15", codes: ["C2"] }]));
+    const fresh = freshFor([{ date: "2026-04-15", codes: ["L3"] }]);
+    const merged = mergeIcs(old, fresh, { start: "2026-04-01", end: "2026-04-30" });
+    const evs = vevents(merged);
+    expect(evs).toHaveLength(1);
+    // L3 ends at 20:30 (long shift), C2 ends at 17:30 (day shift).
+    expect(evs[0]).toContain("DTEND;TZID=Europe/Zurich:20260415T203000");
+    expect(evs[0]).toContain("SUMMARY:Long shift\\, unit 3");
+  });
+
+  test("boundary: date == drop_range.start is dropped; one day before is kept", () => {
+    const old = generate(
+      freshFor([
+        { date: "2026-04-30", codes: ["C2"] }, // one day before
+        { date: "2026-05-01", codes: ["C2"] }, // exactly drop_range.start
+      ]),
+    );
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["L3"] }]);
+    const merged = mergeIcs(old, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    const evs = vevents(merged);
+    expect(evs).toHaveLength(2);
+    expect(evs[0]).toContain("DTSTART;TZID=Europe/Zurich:20260430");
+    expect(evs[1]).toContain("DTSTART;TZID=Europe/Zurich:20260515");
+  });
+
+  test("chronological order: output sorted by DTSTART regardless of input order", () => {
+    // Existing: April 10. Fresh: May 1 (earlier in fresh-block list) and April 20 (later).
+    // After merge, sorted DTSTARTs should be 0410, 0420, 0501.
+    // But generate() already sorts fresh internally, so we test that
+    // merged blocks are interleaved correctly even if existing > fresh start.
+    const old = generate(
+      freshFor([
+        { date: "2026-04-25", codes: ["C2"] },
+        { date: "2026-03-05", codes: ["V"] },
+      ]),
+    );
+    const fresh = freshFor([
+      { date: "2026-05-15", codes: ["C2"] },
+      { date: "2026-04-05", codes: ["C2"] }, // generate() will sort this first
+    ]);
+    const merged = mergeIcs(old, fresh, { start: "2026-04-01", end: "2026-05-31" });
+    const evs = vevents(merged);
+    // Existing April 25 falls in drop_range and is dropped. Existing March 5 is kept.
+    // Fresh adds April 5 and May 15.
+    expect(evs).toHaveLength(3);
+    const starts = evs.map((e) => e.match(/DTSTART[^:]*:(\S+)/)![1]);
+    expect(starts).toEqual(["20260305", "20260405T071500", "20260515T071500"]);
+  });
+
+  test("byte stability: same inputs → byte-identical output", () => {
+    const old = generate(freshFor([{ date: "2026-03-10", codes: ["C2"] }]));
+    const fresh = freshFor([{ date: "2026-04-15", codes: ["L3"] }]);
+    const a = mergeIcs(old, fresh, { start: "2026-04-01", end: "2026-04-30" });
+    const b = mergeIcs(old, fresh, { start: "2026-04-01", end: "2026-04-30" });
+    expect(a).toBe(b);
+    expect(a).toMatchSnapshot();
+  });
+
+  test("tombstone preservation: existing STATUS:CANCELLED outside drop_range round-trips", () => {
+    // Pre-2026-05-15 builds may have written tombstones; the server no
+    // longer emits them but must preserve them when they survive a merge.
+    const old = generate(
+      makeInput({
+        person: makePerson([]),
+        tombstones: [{ date: "2026-03-20", seq: 0 }],
+      }),
+    );
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["C2"] }]);
+    const merged = mergeIcs(old, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    const evs = vevents(merged);
+    expect(evs).toHaveLength(2);
+    const tomb = evs.find((e) => e.includes("STATUS:CANCELLED"));
+    expect(tomb).toBeDefined();
+    expect(tomb).toContain("DTSTART;VALUE=DATE:20260320");
+    expect(tomb).toContain("SUMMARY:(cancelled)");
+  });
+
+  test("malformed existing: no END:VCALENDAR → fresh-only", () => {
+    const broken = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:abc\r\nEND:VEVENT\r\n";
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["C2"] }]);
+    const merged = mergeIcs(broken, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    expect(merged).toBe(generate(fresh));
+  });
+
+  test("malformed existing: unbalanced BEGIN/END:VEVENT → fresh-only", () => {
+    const broken =
+      "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:abc\r\nBEGIN:VEVENT\r\nUID:def\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["C2"] }]);
+    const merged = mergeIcs(broken, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    expect(merged).toBe(generate(fresh));
+  });
+
+  test("unexpected DTSTART form on a preserved block → that block dropped, rest proceeds", () => {
+    // Hand-build an existing .ics with two VEVENTs: one valid (March, outside
+    // drop_range), one with a bogus DTSTART (also outside drop_range, but we
+    // expect it dropped). The valid one survives.
+    const goodBlock =
+      "BEGIN:VEVENT\r\n" +
+      "UID:aaaa111122223333-20260310-0@pdf2calendar\r\n" +
+      "DTSTAMP:20260301T120000Z\r\n" +
+      "DTSTART;VALUE=DATE:20260310\r\n" +
+      "DTEND;VALUE=DATE:20260311\r\n" +
+      "SUMMARY:Vacation\r\n" +
+      "STATUS:CONFIRMED\r\n" +
+      "END:VEVENT";
+    const badBlock =
+      "BEGIN:VEVENT\r\n" +
+      "UID:bbbb111122223333-20260315-0@pdf2calendar\r\n" +
+      "DTSTAMP:20260301T120000Z\r\n" +
+      "DTSTART:20260315T080000Z\r\n" + // UTC form, neither timed-TZID nor VALUE=DATE
+      "DTEND:20260315T160000Z\r\n" +
+      "SUMMARY:Mystery\r\n" +
+      "STATUS:CONFIRMED\r\n" +
+      "END:VEVENT";
+    const existing =
+      "BEGIN:VCALENDAR\r\n" +
+      "VERSION:2.0\r\n" +
+      "PRODID:-//pdf2calendar//EN\r\n" +
+      goodBlock +
+      "\r\n" +
+      badBlock +
+      "\r\n" +
+      "END:VCALENDAR\r\n";
+    const fresh = freshFor([{ date: "2026-05-15", codes: ["C2"] }]);
+    const merged = mergeIcs(existing, fresh, { start: "2026-05-01", end: "2026-05-31" });
+    const evs = vevents(merged);
+    expect(evs).toHaveLength(2);
+    expect(evs.some((e) => e.includes("SUMMARY:Vacation"))).toBe(true);
+    expect(evs.some((e) => e.includes("SUMMARY:Mystery"))).toBe(false);
   });
 });
 

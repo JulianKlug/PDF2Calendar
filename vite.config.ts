@@ -27,5 +27,14 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2022",
   },
+  // Dev proxy: mirrors the production nginx layout so the browser POSTs to
+  // same-origin /api/upload and Vite forwards it to the Bun server on :3001.
+  // No CORS, no VITE_API_BASE_URL needed in dev. See docs/server-spec.md
+  // § Deployment → nginx.
+  server: {
+    proxy: {
+      "/api": "http://localhost:3001",
+    },
+  },
   plugins: [requireDepartmentSlug()],
 });

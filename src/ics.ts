@@ -2,12 +2,12 @@
 // Spec: docs/ics-spec.md.
 
 import type { Code } from "./codes.ts";
-import type { ParsedPerson } from "./types.ts";
+import type { ParsedDay } from "./types.ts";
 
 export type { Code } from "./codes.ts";
 
 export type GenerateInput = {
-  person: ParsedPerson;
+  person: { days: ParsedDay[] };
   person_hash: string;
   codes: Record<string, Code>;
   // Default true. When true, codes prefixed with `°` or `*` strip the prefix
@@ -299,4 +299,135 @@ export function generate(input: GenerateInput): string {
   lines.push("END:VCALENDAR");
 
   return lines.map(fold).join("\r\n") + "\r\n";
+}
+
+// Multi-month merge: splice VEVENTs from `existing` that fall OUTSIDE
+// `drop_range` into the freshly generated VCALENDAR. See docs/server-spec.md
+// § Multi-month merge.
+//
+// `drop_range` is the new upload's `date_range`: VEVENTs from `existing`
+// whose DTSTART falls within it are dropped (the fresh upload supersedes
+// them); VEVENTs outside it are preserved verbatim, including any legacy
+// `STATUS:CANCELLED` tombstones from pre-2026-05-15 builds.
+//
+// Malformed `existing` (missing END:VCALENDAR, unbalanced BEGIN/END:VEVENT)
+// is non-fatal: the function logs a warning and returns `freshIcs` unchanged.
+// A single VEVENT block with an unrecognized DTSTART form is dropped (with
+// a log line) and the rest of the merge proceeds.
+export function mergeIcs(
+  existing: string | null,
+  freshInput: GenerateInput,
+  drop_range: { start: string; end: string },
+): string {
+  const freshIcs = generate(freshInput);
+
+  if (existing === null || existing === "") return freshIcs;
+
+  const lines = existing.split("\r\n");
+  const beginCount = lines.reduce((n, l) => (l === "BEGIN:VEVENT" ? n + 1 : n), 0);
+  const endCount = lines.reduce((n, l) => (l === "END:VEVENT" ? n + 1 : n), 0);
+
+  if (beginCount === 0) return freshIcs;
+
+  if (!existing.includes("END:VCALENDAR") || beginCount !== endCount) {
+    console.warn(
+      `mergeIcs: existing .ics for ${freshInput.person_hash} is malformed — falling back to fresh-only`,
+    );
+    return freshIcs;
+  }
+
+  const existingBlocks = extractVeventBlocks(existing);
+  const kept: Array<{ block: string; sortKey: string; uid: string }> = [];
+  for (const block of existingBlocks) {
+    const meta = extractDtstartMeta(block);
+    if (meta === null) {
+      console.warn(
+        `mergeIcs: dropping block with unexpected DTSTART for ${freshInput.person_hash}`,
+      );
+      continue;
+    }
+    if (meta.date >= drop_range.start && meta.date <= drop_range.end) continue;
+    kept.push({ block, sortKey: meta.sortKey, uid: extractUid(block) });
+  }
+
+  const freshBlocks = extractVeventBlocks(freshIcs);
+  const fresh: Array<{ block: string; sortKey: string; uid: string }> = [];
+  for (const block of freshBlocks) {
+    const meta = extractDtstartMeta(block);
+    // generate() output always has a well-formed DTSTART; the `!` is safe.
+    fresh.push({ block, sortKey: meta!.sortKey, uid: extractUid(block) });
+  }
+
+  const merged = [...kept, ...fresh].sort((a, b) => {
+    if (a.sortKey < b.sortKey) return -1;
+    if (a.sortKey > b.sortKey) return 1;
+    if (a.uid < b.uid) return -1;
+    if (a.uid > b.uid) return 1;
+    return 0;
+  });
+
+  // Reuse freshIcs's header (BEGIN:VCALENDAR through END:VTIMEZONE) to keep
+  // the preamble byte-exact with generate().
+  const endVCalIdx = freshIcs.lastIndexOf("END:VCALENDAR\r\n");
+  let preamble = freshIcs.slice(0, endVCalIdx);
+  const firstVeventIdx = preamble.indexOf("BEGIN:VEVENT");
+  if (firstVeventIdx >= 0) preamble = preamble.slice(0, firstVeventIdx);
+
+  if (merged.length === 0) return preamble + "END:VCALENDAR\r\n";
+  return (
+    preamble +
+    merged.map((m) => m.block).join("\r\n") +
+    "\r\n" +
+    "END:VCALENDAR\r\n"
+  );
+}
+
+function extractVeventBlocks(ics: string): string[] {
+  const blocks: string[] = [];
+  const lines = ics.split("\r\n");
+  let buf: string[] | null = null;
+  for (const line of lines) {
+    if (line === "BEGIN:VEVENT") {
+      buf = [line];
+    } else if (line === "END:VEVENT" && buf !== null) {
+      buf.push(line);
+      blocks.push(buf.join("\r\n"));
+      buf = null;
+    } else if (buf !== null) {
+      buf.push(line);
+    }
+  }
+  return blocks;
+}
+
+const DTSTART_TIMED_RE = /^DTSTART;TZID=Europe\/Zurich:(\d{8})(T\d{6})$/;
+const DTSTART_ALLDAY_RE = /^DTSTART;VALUE=DATE:(\d{8})$/;
+
+function extractDtstartMeta(block: string): { date: string; sortKey: string } | null {
+  for (const line of block.split("\r\n")) {
+    if (!line.startsWith("DTSTART")) continue;
+    const t = line.match(DTSTART_TIMED_RE);
+    if (t) {
+      const ymd = t[1]!;
+      return {
+        date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`,
+        sortKey: ymd + t[2]!,
+      };
+    }
+    const a = line.match(DTSTART_ALLDAY_RE);
+    if (a) {
+      const ymd = a[1]!;
+      return {
+        date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`,
+        sortKey: ymd,
+      };
+    }
+    return null;
+  }
+  return null;
+}
+
+function extractUid(block: string): string {
+  const m = block.match(/\r\nUID:([^\r\n]+)/);
+  return m ? m[1]! : "";
 }

@@ -31,8 +31,9 @@ Be precise.
 
 ```ts
 type GenerateInput = {
-  // From the parser
-  person: ParsedPerson;                 // see parser-spec §"Output schema"
+  // Only `days` is consumed; `role`/`name`/`row_band` from ParsedPerson
+  // are not read by the generator, so the type is intentionally narrower.
+  person: { days: ParsedDay[] };        // see parser-spec §"Output schema" for ParsedDay
 
   // Identity for UID + URLs
   person_hash: string;                  // 16 hex chars: sha256(dept + "|" + normalize(name))[:16]
