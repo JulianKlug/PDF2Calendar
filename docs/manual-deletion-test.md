@@ -1,12 +1,12 @@
 # Manual Deletion Test
 
-Status: RUNBOOK
+Status: **PASSED 2026-05-15** — both Google + Apple deleted cleanly. See
+[`docs/test-results/manual-deletion-test-2026-05-15.md`](test-results/manual-deletion-test-2026-05-15.md)
+for the recorded run. Architecture gate cleared; server build unblocked.
+Runbook retained for regression use if Google's poll behavior changes.
+
 Owner: @klug
 Time budget: 30 min hands-on + ≤24 h waiting on Google's poll
-
-This test gates the architecture for the entire project. **Do not build the
-server, frontend, or any other downstream component until this passes (or
-fails and you've adapted the design).**
 
 ---
 
