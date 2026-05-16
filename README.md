@@ -22,9 +22,10 @@ Open the printed URL (defaults to `http://localhost:5173/`).
 and baked into the bundle. The build fails loud if it's unset; copy
 `.env.example` to `.env.local` if you want to skip the `VAR=` prefix.
 
-The backend isn't built yet, so the upload step lands on
-`Couldn't reach the server`. Everything up to that point (parse, render,
-preview-row lightbox) works in-browser. See `docs/manual-upload-test.md`.
+For end-to-end uploads, start the backend in a second terminal — see
+Phase 0 of `docs/manual-upload-test.md`. With only the frontend running,
+the upload step lands on `Couldn't reach the server`; everything up to
+that point (parse, render, preview-row lightbox) works in-browser.
 
 ## Scripts
 
@@ -33,6 +34,7 @@ preview-row lightbox) works in-browser. See `docs/manual-upload-test.md`.
 | `bun run dev` | Vite dev server. Requires `VITE_DEPARTMENT_SLUG`. |
 | `bun run build` | Production build → `dist/`. Same env requirement. |
 | `bun run preview` | Serve the `dist/` build locally. |
+| `bun run start` | Run the backend (`src/server.ts`). See `docs/server-spec.md` for required env. |
 | `bun test` | Bun test runner: `test/*.test.ts` + `web/*.test.ts`. |
 | `bun run probe` | Parser feasibility probe on the example PDFs. |
 | `bunx tsc --noEmit` | Type check. |
@@ -40,10 +42,11 @@ preview-row lightbox) works in-browser. See `docs/manual-upload-test.md`.
 ## Layout
 
 ```
-src/        # parser, codes table, .ics generator — Bun/Node, no DOM
+src/        # parser, codes table, .ics generator, Bun server — no DOM
 web/        # browser frontend (Vite root). Only main.ts touches the DOM.
 scripts/    # one-off dev helpers (probe, dump-ics, debug)
-test/       # bun:test suite for src/
+test/       # bun:test suite for src/ + server
+deploy/     # nginx + systemd templates for V1 deploys
 docs/       # specs and runbooks
 example_data/ # PDF fixtures (gitignored)
 ```
