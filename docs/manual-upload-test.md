@@ -40,6 +40,29 @@ wrong, or both. Record what you saw and which phase failed.
 
 ---
 
+## Phase 0 — Start the backend
+
+The server lives at `src/server.ts`; run it in a second terminal before
+Phase 1 so the upload phases (5–7) have somewhere to POST. Three env
+vars are required (see `docs/server-spec.md` § Configuration):
+
+```bash
+PDF2CAL_DATA_DIR=/tmp/p2c \
+PDF2CAL_BASE_URL=http://localhost:3001 \
+PDF2CAL_DEPARTMENT_SLUG=anesthesia-chuv \
+bun run start
+```
+
+- [ ] Server prints `pdf2calendar listening on :3001 (data=/tmp/p2c, base=…, dept=anesthesia-chuv)`
+- [ ] `curl -s http://localhost:3001/healthz` returns `{"ok":true}`
+- [ ] `PDF2CAL_DEPARTMENT_SLUG` matches the `VITE_DEPARTMENT_SLUG` used in
+      Phase 1 — drift breaks every `person_hash` and every upload returns
+      `400 hash_mismatch`.
+
+Leave the server running for the rest of the runbook. Stop with Ctrl-C.
+
+---
+
 ## Phase 1 — Dev server boots and the drop zone is what you expect
 
 - [ ] `VITE_DEPARTMENT_SLUG=anesthesia-chuv bun run dev`
