@@ -1,0 +1,71 @@
+# pdf2calendar nginx skeleton — see docs/server-spec.md § Deployment → nginx.
+#
+# Copy to /etc/nginx/sites-available/, adjust server_name and TLS, then enable.
+# `client_max_body_size` here MUST match `PDF2CAL_MAX_UPLOAD_BYTES` and the
+# `Bun.serve({ maxRequestBodySize })` value (default 10 MB).
+
+# Rate-limit zone for the upload endpoint.
+limit_req_zone $binary_remote_addr zone=p2c_upload:10m rate=10r/m;
+
+# Privacy: redacted access-log format — no $remote_addr, no $http_referer,
+# no $http_user_agent. nginx's default `combined` log writes all three.
+# Override at the http{} or server{} level. See docs/server-spec.md § Logging.
+log_format p2c '$time_iso8601 $request_method $request_uri $status $body_bytes_sent';
+
+server {
+    server_name pdf2calendar.example.com;
+    listen 443 ssl;
+    # ssl_certificate     /etc/letsencrypt/live/pdf2calendar.example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/pdf2calendar.example.com/privkey.pem;
+
+    access_log /var/log/nginx/pdf2calendar-access.log p2c;
+    error_log  /var/log/nginx/pdf2calendar-error.log warn;
+
+    client_max_body_size 10M;
+
+    # Static SPA — built by `bun run build` into dist/.
+    root /var/www/pdf2calendar/dist;
+    index index.html;
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # Feed files — Bun is never in the read path.
+    # `no-cache, must-revalidate` lets ETag-conditional 304s save bandwidth
+    # on Google's polls but never serves stale bytes after a re-upload.
+    # Do NOT set max-age — it would defer detection.
+    location /feed/ {
+        alias /var/lib/pdf2calendar/feeds/;
+        default_type text/calendar;
+        charset utf-8;
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+
+    # Row PNGs — content-addressed by <pdf_sha256>, safe to cache forever.
+    location /source/ {
+        alias /var/lib/pdf2calendar/rows/;
+        default_type image/png;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # Upload endpoint — rate-limited, proxied to Bun.
+    location = /api/upload {
+        limit_req zone=p2c_upload burst=10 nodelay;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_request_buffering on;
+    }
+
+    location = /healthz {
+        proxy_pass http://127.0.0.1:3001;
+    }
+
+    # NOTE: /var/lib/pdf2calendar/sources/ is intentionally NOT served.
+    # Source PDFs stay private; only per-person row crops are exposed.
+}
+
+# Optional HTTP→HTTPS redirect:
+# server {
+#     listen 80;
+#     server_name pdf2calendar.example.com;
+#     return 301 https://$host$request_uri;
+# }

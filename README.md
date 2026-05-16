@@ -53,6 +53,7 @@ example_data/ # PDF fixtures (gitignored)
 - `docs/parser-spec.md` — parser contract
 - `docs/ics-spec.md` — `.ics` generator contract
 - `docs/frontend-spec.md` — browser-side pipeline (this codebase)
+- `docs/server-spec.md` — backend server contract
 - `docs/manual-deletion-test.md` — load-bearing architecture gate
 - `docs/manual-upload-test.md` — frontend smoke test
 - `docs/Codes.md` — source of truth for the codes table

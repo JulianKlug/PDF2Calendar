@@ -6,6 +6,15 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import { normalize, personHash } from "./person-hash.ts";
+import fixture from "../test/fixtures/normalize.json" with { type: "json" };
+
+type FixtureRow = {
+  name: string;
+  expected_normalize: string;
+  department?: string;
+  expected_person_hash?: string;
+  note?: string;
+};
 
 describe("normalize", () => {
   test("NFC composes decomposed forms", () => {
@@ -49,6 +58,18 @@ describe("personHash", () => {
     expect(await personHash("anesthesia-chuv", "Klug, J.")).toBe(canonical);
   });
 
+  test("locked-down fixture also flows from shared JSON file", async () => {
+    // Same vector as above, but sourced from test/fixtures/normalize.json so
+    // that test/normalize-shared.test.ts (server side) and this test agree
+    // by construction. See docs/server-spec.md § Identifier hashing.
+    const canon = (fixture as FixtureRow[]).find(
+      (r) => r.department && r.expected_person_hash,
+    );
+    expect(canon).toBeDefined();
+    const got = await personHash(canon!.department!, canon!.name);
+    expect(got).toBe(canon!.expected_person_hash!);
+  });
+
   test("matches node:crypto for arbitrary (dept, name) pairs", async () => {
     const cases: Array<[string, string]> = [
       ["anesthesia-chuv", "Klug, J"],
@@ -64,4 +85,12 @@ describe("personHash", () => {
       expect(got).toBe(want);
     }
   });
+});
+
+describe("normalize() — shared fixture (web side)", () => {
+  for (const row of fixture as FixtureRow[]) {
+    test(`normalize(${JSON.stringify(row.name)}) → ${JSON.stringify(row.expected_normalize)}`, () => {
+      expect(normalize(row.name)).toBe(row.expected_normalize);
+    });
+  }
 });

@@ -7,7 +7,8 @@
     "test": "bun test",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "bun run src/server.ts"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38"

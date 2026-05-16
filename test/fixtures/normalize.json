@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Klug, J",
+    "expected_normalize": "klug, j",
+    "department": "anesthesia-chuv",
+    "expected_person_hash": "79897ea12fbe8e91",
+    "note": "Canonical fixture: cross-validation vector locked in web/person-hash.test.ts"
+  },
+  {
+    "name": "é",
+    "expected_normalize": "é",
+    "note": "NFC composition: decomposed e + U+0301 combining acute → precomposed U+00E9"
+  },
+  {
+    "name": "KLUG, J",
+    "expected_normalize": "klug, j",
+    "note": "Lowercase fold"
+  },
+  {
+    "name": "  Klug,   J  ",
+    "expected_normalize": "klug, j",
+    "note": "Trim + collapse internal whitespace"
+  },
+  {
+    "name": "Klug, J.",
+    "expected_normalize": "klug, j",
+    "note": "Strip trailing punctuation"
+  }
+]

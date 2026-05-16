@@ -1,0 +1,20 @@
+[Unit]
+Description=pdf2calendar Bun server
+After=network.target
+
+[Service]
+Type=simple
+User=pdf2calendar
+WorkingDirectory=/opt/pdf2calendar
+Environment=PDF2CAL_PORT=3001
+Environment=PDF2CAL_DATA_DIR=/var/lib/pdf2calendar
+Environment=PDF2CAL_BASE_URL=https://pdf2calendar.example.com
+Environment=PDF2CAL_DEPARTMENT_SLUG=anesthesia-chuv
+ExecStart=/usr/local/bin/bun run src/server.ts
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
