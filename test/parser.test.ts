@@ -273,20 +273,24 @@ describe("scanWhitespaceInCodes(): inflight anomaly detector", () => {
 
 describe("isKnownCode(): codes dictionary", () => {
   test("V1 entries are recognized", () => {
-    for (const c of ["N13", "Cw3", "L6", "T", "T2", "X", "V", "CP", "MAL", "°C2"]) {
+    for (const c of [
+      "N13", "Cw3", "L6", "T", "T2", "T5", "LT", "X", "V", "V1", "CP", "MAL",
+      "C34", "Cw46", "Lw13", "Lw46", "°C2",
+    ]) {
       expect(isKnownCode(c)).toBe(true);
     }
   });
 
-  test("°/* prefix strip lets the base code match", () => {
+  test("°/*/# prefix strip lets the base code match", () => {
     // "°C2" is in the dictionary verbatim; the prefix-strip rule is what
     // makes "°N13" → "N13" succeed even though "°N13" isn't a literal entry.
     expect(isKnownCode("°N13")).toBe(true);
     expect(isKnownCode("*C3")).toBe(true);
+    expect(isKnownCode("#C2")).toBe(true);
   });
 
   test("non-codes are unknown", () => {
-    for (const c of ["Cw13", "Lw46", "ZZZ", "", "FooBar"]) {
+    for (const c of ["Cw13", "Lw14", "ZZZ", "", "FooBar"]) {
       expect(isKnownCode(c)).toBe(false);
     }
   });

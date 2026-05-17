@@ -15,25 +15,27 @@
 // "Unknown: X" placeholders so they show up in the calendar with a
 // "fix me" signal.
 //
-// The °/* prefix marks a shift as "to be confirmed". The parser preserves
-// the raw string; the iCal generator strips the prefix to look up the
-// base code, then marks the resulting event STATUS:TENTATIVE.
+// The °, *, and # prefixes mark a shift as "to be confirmed". The parser
+// preserves the raw string; the iCal generator strips the prefix to look
+// up the base code, then marks the resulting event STATUS:TENTATIVE.
 
 export type Code =
   | { kind: "timed"; title: string; start: string; end: string }
   | { kind: "allday"; title: string }
   | { kind: "skip" };
 
+const unitLabel = (unit: string) => (unit.includes("-") ? "units" : "unit");
+
 const dayShift = (unit: string, weekend: boolean): Code => ({
   kind: "timed",
-  title: `Day shift, unit ${unit}${weekend ? " (weekend)" : ""}`,
+  title: `Day shift, ${unitLabel(unit)} ${unit}${weekend ? " (weekend)" : ""}`,
   start: weekend ? "08:00" : "07:15",
   end: "17:30",
 });
 
 const longShift = (unit: string, weekend: boolean): Code => ({
   kind: "timed",
-  title: `Long shift, unit ${unit}${weekend ? " (weekend)" : ""}`,
+  title: `Long shift, ${unitLabel(unit)} ${unit}${weekend ? " (weekend)" : ""}`,
   start: weekend ? "08:00" : "07:15",
   end: "20:30",
 });
@@ -51,12 +53,19 @@ export const codes: Record<string, Code> = {
   C4: dayShift("4", false),  C5: dayShift("5", false),  C6: dayShift("6", false),
   Cw1: dayShift("1", true),  Cw2: dayShift("2", true),  Cw3: dayShift("3", true),
   Cw4: dayShift("4", true),  Cw5: dayShift("5", true),  Cw6: dayShift("6", true),
+  // C/Cw ranged variants — two-digit suffix is the unit range.
+  C34: dayShift("3-4", false),
+  Cw46: dayShift("4-6", true), Cw56: dayShift("5-6", true),
 
   // L — long shift
   L1: longShift("1", false), L2: longShift("2", false), L3: longShift("3", false),
   L4: longShift("4", false), L5: longShift("5", false), L6: longShift("6", false),
   Lw1: longShift("1", true), Lw2: longShift("2", true), Lw3: longShift("3", true),
   Lw4: longShift("4", true), Lw5: longShift("5", true), Lw6: longShift("6", true),
+  // L/Lw ranged variants — two-digit suffix is the unit range.
+  L34: longShift("3-4", false),
+  Lw12: longShift("1-2", true), Lw13: longShift("1-3", true),
+  Lw46: longShift("4-6", true), Lw56: longShift("5-6", true),
 
   // N — night shift (crosses midnight)
   N13: nightShift("1-3", false),
@@ -67,6 +76,10 @@ export const codes: Record<string, Code> = {
   // T — duty / on-call. T is shorthand for T1; T2 has different hours.
   T:  { kind: "timed", title: "T1 shift", start: "09:00", end: "19:00" },
   T2: { kind: "timed", title: "T2 shift", start: "07:15", end: "17:30" },
+  T5: { kind: "timed", title: "T5 shift", start: "07:30", end: "17:30" },
+
+  // LT — long T shift
+  LT: { kind: "timed", title: "LT shift", start: "09:00", end: "21:00" },
 
   // P — Piquet (24-hour on-call, crosses midnight)
   P: { kind: "timed", title: "Piquet (on-call)", start: "08:00", end: "08:00" },
@@ -82,6 +95,7 @@ export const codes: Record<string, Code> = {
 
   // All-day events
   V: { kind: "allday", title: "Vacation" },
+  V1: { kind: "allday", title: "Vacation" },
   V2: { kind: "allday", title: "Vacation" },
   SC: { kind: "allday", title: "Soins Continus DC" },
   FI: { kind: "allday", title: "Formation interne" },
@@ -97,7 +111,7 @@ export const codes: Record<string, Code> = {
 
 export const V1_CODES = new Set(Object.keys(codes));
 
-const TENTATIVE_PREFIX = /^[°*]/;
+const TENTATIVE_PREFIX = /^[°*#]/;
 
 export function isKnownCode(raw: string): boolean {
   if (V1_CODES.has(raw)) return true;
