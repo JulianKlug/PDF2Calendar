@@ -273,7 +273,7 @@ SIM, V, SC, FI, FE, CHV, CAR, X, MAL, CP`
 (See `docs/Codes.md` for shift hours and `src/codes.ts` for the executable
 mapping.)
 
-`°` and `*` prefixes are NOT separate codes — they mark a shift as
+`°`, `*`, and `#` prefixes are NOT separate codes — they mark a shift as
 "to be confirmed". The parser preserves them as raw strings; the iCal
 generator strips the prefix and looks up the base code, then emits
 `STATUS:TENTATIVE`.
