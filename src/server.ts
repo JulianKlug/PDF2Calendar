@@ -12,6 +12,7 @@ import type {
 } from "../web/api.ts";
 import { isKnownCode, codes as V1_CODES_TABLE } from "./codes.ts";
 import { mergeIcs, type GenerateInput } from "./ics.ts";
+import { ManifestCache } from "./manifest-cache.ts";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -63,13 +64,14 @@ function dirs(env: Env) {
     manifest: join(env.dataDir, "manifest"),
     sources: join(env.dataDir, "sources"),
     rows: join(env.dataDir, "rows"),
+    plans: join(env.dataDir, "plans"),
     unknownLog: join(env.dataDir, "unknown-codes.log"),
   };
 }
 
 export async function bootstrap(env: Env): Promise<void> {
   const d = dirs(env);
-  for (const p of [d.feeds, d.manifest, d.sources, d.rows]) {
+  for (const p of [d.feeds, d.manifest, d.sources, d.rows, d.plans]) {
     try {
       await mkdir(p, { recursive: true });
     } catch (e) {
@@ -272,6 +274,18 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+async function manifestResponse(cache: ManifestCache): Promise<Response> {
+  const body = await cache.get();
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      "x-robots-tag": "noindex, nofollow",
+      "cache-control": "no-store",
+    },
   });
 }
 
@@ -504,6 +518,12 @@ class WriteFailure extends Error {
 export type ServerLike = { port: number; stop: (closeActiveConnections?: boolean) => void };
 
 export function createServer(env: Env): ServerLike {
+  const cache = new ManifestCache({
+    dataDir: env.dataDir,
+    baseUrl: env.baseUrl,
+    departmentSlug: env.departmentSlug,
+  });
+
   const handler = async (req: Request): Promise<Response> => {
     const start = Date.now();
     const url = new URL(req.url);
@@ -511,6 +531,8 @@ export function createServer(env: Env): ServerLike {
     try {
       if (req.method === "GET" && url.pathname === "/healthz") {
         res = jsonResponse(200, { ok: true });
+      } else if (req.method === "GET" && url.pathname === "/api/manifest") {
+        res = await manifestResponse(cache);
       } else if (req.method === "POST" && url.pathname === "/api/upload") {
         res = await handleUpload(req, env);
       } else {

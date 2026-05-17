@@ -708,3 +708,93 @@ describe("/healthz", () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 });
+
+describe("/api/manifest — empty data dir", () => {
+  test("GET → 200 with empty arrays + correct headers", async () => {
+    const res = await fetch(`${baseUrl}/api/manifest`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/json");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+
+    const body = await res.json();
+    expect(body.schema_version).toBe(2);
+    expect(body.department_slug).toBe(DEPT);
+    expect(body.latest_plan).toBeNull();
+    expect(body.plans).toEqual([]);
+    expect(body.staff).toEqual([]);
+  });
+});
+
+describe("/api/manifest — populated fixture", () => {
+  test("GET → returns plan + staff joined with row_url + feed_url", async () => {
+    const planJson = {
+      schema_version: 2,
+      pdf_sha256: "abc",
+      original_filename: "Plan_Mai.pdf",
+      uploaded_at: "2026-05-01T10:00:00.000Z",
+      months: [{ year: 2026, month: 5, days_covered: [1, 2, 3] }],
+      person_hashes: ["1111111111111111"],
+    };
+    await writeFile(
+      join(env.dataDir, "plans", "abc.json"),
+      JSON.stringify(planJson),
+    );
+
+    const personJson = {
+      schema_version: 2,
+      name: "Klug, J",
+      role: "ma",
+      last_uploaded_at: "2026-05-01T10:00:00.000Z",
+      last_pdf_sha256: "abc",
+      last_date_range: { start: "2026-05-01", end: "2026-05-31" },
+      entries: [
+        {
+          pdf_sha256: "abc",
+          original_filename: "Plan_Mai.pdf",
+          uploaded_at: "2026-05-01T10:00:00.000Z",
+          months: [{ year: 2026, month: 5 }],
+        },
+      ],
+    };
+    await writeFile(
+      join(env.dataDir, "manifest", "1111111111111111.json"),
+      JSON.stringify(personJson),
+    );
+
+    const res = await fetch(`${baseUrl}/api/manifest`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.latest_plan).not.toBeNull();
+    expect(body.latest_plan.pdf_sha256).toBe("abc");
+    expect(body.latest_plan.original_filename).toBe("Plan_Mai.pdf");
+    expect(body.plans).toHaveLength(1);
+    expect(body.staff).toHaveLength(1);
+    const s = body.staff[0];
+    expect(s.person_hash).toBe("1111111111111111");
+    expect(s.name).toBe("Klug, J");
+    expect(s.feed_url).toBe(
+      `${env.baseUrl}/feed/1111111111111111.ics`,
+    );
+    expect(s.entries[0].row_url).toBe(
+      `${env.baseUrl}/source/abc/1111111111111111.png`,
+    );
+  });
+
+  test("V1-shaped manifest (no schema_version) is silently absent from staff[]", async () => {
+    await writeFile(
+      join(env.dataDir, "manifest", "1111111111111111.json"),
+      JSON.stringify({
+        name: "Legacy, V",
+        role: "ma",
+        last_uploaded_at: "2026-04-01T10:00:00.000Z",
+        last_pdf_sha256: "old",
+        last_date_range: { start: "2026-04-01", end: "2026-04-30" },
+      }),
+    );
+    const res = await fetch(`${baseUrl}/api/manifest`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.staff).toEqual([]);
+  });
+});
