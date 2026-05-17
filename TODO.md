@@ -25,6 +25,9 @@ marked *(V2)*.
       (`docs/server-spec.md`:861–863)
 - [ ] Cookie- or token-based rate limit if hospital-NAT collisions
       surface in practice (`docs/server-spec.md`:865–868)
+- [ ] Prune `entries[]` past ~50 items per person from
+      `manifest/<hash>.json` if/when long-running departments hit it
+      (V2 review — `docs/v2-spec.md` § Performance)
 
 ## Frontend
 
@@ -42,6 +45,11 @@ marked *(V2)*.
       (`docs/frontend-spec.md`:1008)
 - [ ] Lightbox: fit-to-viewport + tap-to-zoom interaction
       (`docs/frontend-spec.md`:1021)
+- [ ] Confirm-time diff at upload — `POST /api/diff` returning
+      `{people_changed, shifts_added, shifts_removed, shifts_modified}`,
+      displayed in the V2 confirm modal so the admin sees the real
+      magnitude of the change before clicking Confirm
+      (V2 review — `docs/v2-spec.md` § Explicitly out of scope)
 
 ## iCal generator
 
