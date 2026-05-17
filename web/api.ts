@@ -18,6 +18,11 @@ export type UploadPayload = {
     person_hash: string;
     days: ParsedDay[];
   }>;
+  // V2 additions. Optional at the type level so commit 4 (server-side plan
+  // write) can land before commit 5 (admin gate). The runtime requirement
+  // is added in commit 5 (validatePayload + verifyAdminPassword).
+  admin_password?: string;
+  original_filename?: string;
 };
 
 export type UploadResponseFeed = {

@@ -726,6 +726,106 @@ describe("/api/manifest — empty data dir", () => {
   });
 });
 
+describe("plans/<sha>.json + V2 manifest", () => {
+  test("upload writes plans/<sha>.json with schema_version 2", async () => {
+    const { res, pdfSha } = await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    expect(res.status).toBe(200);
+    const planFile = JSON.parse(
+      await readFile(join(env.dataDir, "plans", `${pdfSha}.json`), "utf-8"),
+    );
+    expect(planFile.schema_version).toBe(2);
+    expect(planFile.pdf_sha256).toBe(pdfSha);
+    expect(planFile.original_filename).toBe("shifts.pdf");
+    expect(planFile.months).toEqual([{ year: 2026, month: 5, days_covered: [15] }]);
+    expect(planFile.person_hashes).toEqual(["79897ea12fbe8e91"]);
+  });
+
+  test("re-upload same sha overwrites plan file atomically (idempotent)", async () => {
+    const first = await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    expect(first.res.status).toBe(200);
+    const second = await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["L3"] }] }],
+    });
+    expect(second.res.status).toBe(200);
+    // Same sha → still one plan file.
+    const planFiles = await readdir(join(env.dataDir, "plans"));
+    expect(planFiles.filter((f) => !f.endsWith(".tmp"))).toHaveLength(1);
+  });
+
+  test("manifest is V2 shape with entries[] replace-wholesale on re-upload of same sha", async () => {
+    const { pdfSha } = await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    const hash = "79897ea12fbe8e91";
+    const after1 = JSON.parse(
+      await readFile(join(env.dataDir, "manifest", `${hash}.json`), "utf-8"),
+    );
+    expect(after1.schema_version).toBe(2);
+    expect(after1.entries).toHaveLength(1);
+    expect(after1.entries[0].pdf_sha256).toBe(pdfSha);
+    // V1 fields kept for read compatibility.
+    expect(after1.last_pdf_sha256).toBe(pdfSha);
+
+    // Re-upload same sha with different codes — entries[] replaced wholesale.
+    await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["L3"] }] }],
+    });
+    const after2 = JSON.parse(
+      await readFile(join(env.dataDir, "manifest", `${hash}.json`), "utf-8"),
+    );
+    expect(after2.entries).toHaveLength(1);
+    expect(after2.entries[0].pdf_sha256).toBe(pdfSha);
+  });
+
+  test("entries[] grows when a different sha is uploaded", async () => {
+    await postHappy({
+      pdfBytes: pdfBytes("april"),
+      date_range: { start: "2026-04-01", end: "2026-04-30" },
+      months: [{ year: 2026, month: 4, days_covered: [15] }],
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-04-15", codes: ["C2"] }] }],
+    });
+    await postHappy({
+      pdfBytes: pdfBytes("may"),
+      date_range: { start: "2026-05-01", end: "2026-05-31" },
+      months: [{ year: 2026, month: 5, days_covered: [20] }],
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-20", codes: ["L3"] }] }],
+    });
+    const hash = "79897ea12fbe8e91";
+    const manifest = JSON.parse(
+      await readFile(join(env.dataDir, "manifest", `${hash}.json`), "utf-8"),
+    );
+    expect(manifest.entries).toHaveLength(2);
+    expect(manifest.entries.map((e: any) => e.months)).toEqual([
+      [{ year: 2026, month: 4 }],
+      [{ year: 2026, month: 5 }],
+    ]);
+  });
+});
+
+describe("/api/manifest cache invalidation", () => {
+  test("GET reflects new plan after upload", async () => {
+    let res = await fetch(`${baseUrl}/api/manifest`);
+    expect(((await res.json()) as any).latest_plan).toBeNull();
+
+    const happy = await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    expect(happy.res.status).toBe(200);
+
+    res = await fetch(`${baseUrl}/api/manifest`);
+    const body = (await res.json()) as any;
+    expect(body.latest_plan).not.toBeNull();
+    expect(body.latest_plan.pdf_sha256).toBe(happy.pdfSha);
+    expect(body.staff).toHaveLength(1);
+    expect(body.staff[0].name).toBe("Klug, J");
+    expect(body.staff[0].entries[0].pdf_sha256).toBe(happy.pdfSha);
+  });
+});
+
 describe("/api/manifest — populated fixture", () => {
   test("GET → returns plan + staff joined with row_url + feed_url", async () => {
     const planJson = {

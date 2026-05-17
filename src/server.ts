@@ -13,6 +13,7 @@ import type {
 import { isKnownCode, codes as V1_CODES_TABLE } from "./codes.ts";
 import { mergeIcs, type GenerateInput } from "./ics.ts";
 import { ManifestCache } from "./manifest-cache.ts";
+import type { ManifestEntry, Plan, PersonManifest } from "./types.ts";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -83,7 +84,7 @@ export async function bootstrap(env: Env): Promise<void> {
 export async function orphanSweep(env: Env): Promise<number> {
   const d = dirs(env);
   let count = 0;
-  for (const root of [d.feeds, d.manifest]) {
+  for (const root of [d.feeds, d.manifest, d.plans]) {
     let entries: string[];
     try {
       entries = await readdir(root);
@@ -295,7 +296,11 @@ function errorResponse(status: number, error: string, code?: string): Response {
   return jsonResponse(status, body);
 }
 
-async function handleUpload(req: Request, env: Env): Promise<Response> {
+async function handleUpload(
+  req: Request,
+  env: Env,
+  cache: ManifestCache,
+): Promise<Response> {
   // Step 1 — parse multipart
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
   if (!contentType.startsWith("multipart/form-data")) {
@@ -412,7 +417,16 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
     }
   }
 
-  // Steps 6–9 — write phase under the mutex
+  // V2: prefer payload.original_filename; fall back to source_file_name so
+  // V1 callers and pre-commit-5 tests keep working.
+  const originalFilename = payload.original_filename ?? payload.source_file_name;
+
+  // Steps 6–9 — write phase under the mutex.
+  //
+  // Order matters (docs/v2-spec.md § Decisions — write-mutex invariant): per-
+  // person feeds + manifest first, plan file second, cache.invalidate() LAST.
+  // A torn write at any step leaves disk consistent: no plan ever appears in
+  // /api/manifest without matching entries[] on the relevant persons.
   const uploadedAt = new Date();
   await withWriteLock(async () => {
     const d = dirs(env);
@@ -431,7 +445,15 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
       await atomicWrite(target, rowBytes);
     }
 
-    // Step 8 — per-person .ics + manifest
+    // Step 8 — per-person .ics + V2 manifest
+    const planMonths = payload.months.map((m) => ({ year: m.year, month: m.month }));
+    const newEntry: ManifestEntry = {
+      pdf_sha256: payload.pdf_sha256,
+      original_filename: originalFilename,
+      uploaded_at: uploadedAt.toISOString(),
+      months: planMonths,
+    };
+
     for (const person of payload.people) {
       const feedPath = join(d.feeds, `${person.person_hash}.ics`);
       let existing: string | null = null;
@@ -462,17 +484,38 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
         );
       }
 
-      // Manifest is best-effort — never converts to a 500. See spec § Step 8.4.
-      const manifest = {
+      // V2 manifest: schema_version + entries[] with replace-wholesale by
+      // pdf_sha256. Best-effort write — failure is logged, not 500'd
+      // (V1 invariant: manifest is metadata, not the source of truth).
+      const manifestPath = join(d.manifest, `${person.person_hash}.json`);
+      let priorEntries: ManifestEntry[] = [];
+      try {
+        const prevText = await readFile(manifestPath, "utf-8");
+        const prev = JSON.parse(prevText) as Partial<PersonManifest>;
+        if (Array.isArray(prev.entries)) {
+          priorEntries = prev.entries as ManifestEntry[];
+        }
+      } catch {
+        // file missing or unreadable — start fresh
+      }
+
+      const entries: ManifestEntry[] = [
+        ...priorEntries.filter((e) => e.pdf_sha256 !== payload.pdf_sha256),
+        newEntry,
+      ];
+
+      const manifest: PersonManifest = {
+        schema_version: 2,
         name: person.name,
         role: person.role,
         last_uploaded_at: uploadedAt.toISOString(),
         last_pdf_sha256: payload.pdf_sha256,
         last_date_range: payload.date_range,
+        entries,
       };
       try {
         await atomicWrite(
-          join(d.manifest, `${person.person_hash}.json`),
+          manifestPath,
           JSON.stringify(manifest, null, 2) + "\n",
         );
       } catch (e) {
@@ -489,6 +532,36 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
         console.error(`unknown-codes.log append failed: ${(e as Error).message}`);
       }
     }
+
+    // Plan file — written AFTER per-person manifest so a torn write can never
+    // leave a plan referencing persons whose entries[] don't include it.
+    // Idempotent: re-upload of the same sha overwrites atomically.
+    const planFile: Plan = {
+      schema_version: 2,
+      pdf_sha256: payload.pdf_sha256,
+      original_filename: originalFilename,
+      uploaded_at: uploadedAt.toISOString(),
+      months: payload.months.map((m) => ({
+        year: m.year,
+        month: m.month,
+        days_covered: m.days_covered,
+      })),
+      person_hashes: payload.people.map((p) => p.person_hash),
+    };
+    try {
+      await atomicWrite(
+        join(d.plans, `${payload.pdf_sha256}.json`),
+        JSON.stringify(planFile, null, 2) + "\n",
+      );
+    } catch (e) {
+      // Plan-file failures are best-effort like manifests — the feeds are the
+      // source of truth. Log loudly so it surfaces in journalctl.
+      console.error(`plan write failed for ${payload.pdf_sha256}: ${(e as Error).message}`);
+    }
+
+    // LAST: invalidate the read cache so the next /api/manifest sees this
+    // upload. Per docs/v2-spec.md § Decisions — write-mutex invariant.
+    cache.invalidate();
   });
 
   // Step 10 — response
@@ -534,7 +607,7 @@ export function createServer(env: Env): ServerLike {
       } else if (req.method === "GET" && url.pathname === "/api/manifest") {
         res = await manifestResponse(cache);
       } else if (req.method === "POST" && url.pathname === "/api/upload") {
-        res = await handleUpload(req, env);
+        res = await handleUpload(req, env, cache);
       } else {
         res = errorResponse(404, "not found");
       }
