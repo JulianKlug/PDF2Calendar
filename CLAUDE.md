@@ -38,6 +38,7 @@ Full runbook in **README.md § Deploy**. Eddy-specific values to substitute when
 
 - `PDF2CAL_BASE_URL=https://pdf2calendar.julianklug.com`
 - `PDF2CAL_DEPARTMENT_SLUG=sia-chuv` (must match the `VITE_DEPARTMENT_SLUG` the SPA was built with)
+- `PDF2CAL_ADMIN_PASSWORD=<set-at-deploy-time>` (V2; required at boot, empty string counts as unset; rotated by editing the systemd `Environment=` line and restarting the unit)
 - nginx `server_name pdf2calendar.julianklug.com www.pdf2calendar.julianklug.com;`
 - repo URL: `https://github.com/JulianKlug/PDF2Calendar.git`
 - Other eddy services occupy ports 2080–2222; port 3001 is free for Bun.

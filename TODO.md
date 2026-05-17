@@ -1,19 +1,15 @@
 # TODO — V2 / deferred work
 
-V1 shipped 2026-05-17 (see `docs/test-results/manual-upload-test-2026-05-17.md`).
-Everything below is currently *deferred* in the V1 specs — nothing here
-blocks production use. Brackets after each item point at the source spec
-where the item is described in fuller form.
-
-**V2 spec (DRAFT, 2026-05-17): `docs/v2-spec.md`** — admin-gated uploads,
-landing-page staff index, overwrite confirmation. Covers the items below
-marked *(V2)*.
+V1 shipped 2026-05-17. V2 followed 2026-05-17 (admin-gated uploads,
+landing-page staff index, overwrite confirmation — see
+`docs/v2-spec.md`). Everything below is *deferred* — nothing here
+blocks production use. Brackets after each item point at the source
+spec where the item is described in fuller form.
 
 ## Server / API
 
-- [ ] `GET /api/manifest` admin listing endpoint *(V2 — now public,
+- [x] `GET /api/manifest` admin listing endpoint *(shipped in V2 — now public,
       gated only on the upload write path; see `docs/v2-spec.md`)*
-      (`docs/server-spec.md` § Out of scope, line 833)
 - [ ] `GET /source/<pdf_sha256>.pdf` full-PDF view, behind auth
       (`docs/server-spec.md`:834)
 - [ ] Cleanup sweep: drop `sources/<sha>.pdf` + `rows/<sha>/` once no
@@ -73,10 +69,11 @@ marked *(V2)*.
 
 ## Identity / auth
 
-- [ ] Admin password gate on `/api/upload` *(V2 — env-hardcoded
-      `PDF2CAL_ADMIN_PASSWORD`; see `docs/v2-spec.md`)*
+- [x] Admin password gate on `/api/upload` *(shipped in V2 —
+      env-hardcoded `PDF2CAL_ADMIN_PASSWORD`; see `docs/v2-spec.md`)*
 - [ ] Per-user authentication, OAuth, email — post-V2
       (`docs/server-spec.md`:838); supersedes the admin password gate
+      (when this lands, delete `src/admin-auth.ts` and `web/admin-auth.ts`)
 
 ## Explicitly NOT planned
 

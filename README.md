@@ -59,6 +59,14 @@ Targets a systemd host with nginx out front. nginx serves the SPA, `.ics`
 feeds, and row PNGs directly from disk; Bun handles only `/api/upload` and
 `/healthz` (see `docs/server-spec.md`). Templates in `deploy/`.
 
+### Required environment
+
+- `PDF2CAL_DATA_DIR` — where feeds, manifests, plans, sources, and rows live.
+- `PDF2CAL_BASE_URL` — public URL with no trailing slash; powers webcal:// and `feed_url` / `row_url` in `/api/manifest`.
+- `PDF2CAL_DEPARTMENT_SLUG` — must match the SPA's build-time `VITE_DEPARTMENT_SLUG` exactly. Drift breaks every `person_hash`.
+- `PDF2CAL_ADMIN_PASSWORD` *(V2)* — shared admin secret gating `/api/upload`. Required at boot; empty string counts as unset and the server exits. Rotate by editing the systemd `Environment=` line and `systemctl daemon-reload && systemctl restart pdf2calendar`. **The password is loaded directly via `Environment=` so anyone with root on the box can read it — that is the accepted V2 trust boundary.**
+- `PDF2CAL_MAX_UPLOAD_BYTES` (optional, default 10M) — must match nginx's `client_max_body_size`.
+
 ### One-time setup (root, on the host)
 
 ```sh
@@ -79,7 +87,7 @@ cp /opt/pdf2calendar/deploy/nginx.conf.example /etc/nginx/sites-available/pdf2ca
 ln -s /etc/nginx/sites-available/pdf2calendar /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
 
-# 5. systemd — set PDF2CAL_BASE_URL + PDF2CAL_DEPARTMENT_SLUG
+# 5. systemd — set PDF2CAL_BASE_URL + PDF2CAL_DEPARTMENT_SLUG + PDF2CAL_ADMIN_PASSWORD
 cp /opt/pdf2calendar/deploy/pdf2calendar.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now pdf2calendar
 
@@ -96,6 +104,23 @@ match exactly** — drift breaks every `person_hash`. nginx's
 `client_max_body_size`, Bun's `maxRequestBodySize`, and
 `PDF2CAL_MAX_UPLOAD_BYTES` must also match (default 10M).
 
+### Pre-V2 → V2 cutover
+
+V2 assumes a fresh `PDF2CAL_DATA_DIR`. V1-shaped manifests on disk
+keep serving from nginx (no change to `/feed/`) but are silently
+absent from `/api/manifest` until the corresponding plan is
+re-uploaded. Before the V2 deploy:
+
+```sh
+# Confirm the data dir state. Either it's empty, or you accept that any
+# V1 feeds will look "missing" on the landing page until re-upload.
+sudo ls /var/lib/pdf2calendar/manifest/ | head
+# To start fresh:
+sudo systemctl stop pdf2calendar
+sudo rm -rf /var/lib/pdf2calendar/{feeds,manifest,sources,rows,plans}
+sudo systemctl start pdf2calendar
+```
+
 ### Update
 
 ```sh
@@ -111,7 +136,16 @@ curl -fsS https://<host>/healthz
 breaks every `person_hash` and every upload 400s. The build reads
 `process.env` directly, so a `.env.production` file alone won't satisfy it.
 
-To roll back: `git checkout <prev-sha>` in place of `git pull`, then rebuild.
+### Rolling back a bad PDF
+
+The fastest fix for a wrong upload is to re-upload the right PDF —
+the confirm modal explicitly shows the swap (previous filename + month
++ upload time → incoming) so the admin sees what they are replacing.
+No CLI rollback step required; the V1 ICS merge invariant (per-date
+overwrite from the latest plan) handles the rest.
+
+To roll back the binary itself: `git checkout <prev-sha>` in place of
+`git pull`, then rebuild + restart.
 
 ## Docs
 
