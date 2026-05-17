@@ -30,6 +30,14 @@ server {
         try_files $uri /index.html;
     }
 
+    # Ubuntu nginx 1.26 mime.types has no .mjs mapping, so it falls back to
+    # application/octet-stream, which browsers reject for ES module scripts
+    # (PDF.js ships its worker as pdf.worker.min-*.mjs).
+    location ~ \.mjs$ {
+        types { } default_type application/javascript;
+        try_files $uri =404;
+    }
+
     # Feed files — Bun is never in the read path.
     # `no-cache, must-revalidate` lets ETag-conditional 304s save bandwidth
     # on Google's polls but never serves stale bytes after a re-upload.
