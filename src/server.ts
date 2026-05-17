@@ -178,7 +178,7 @@ function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
 
 // ─── validation ───────────────────────────────────────────────────────────
 
-class BadRequest extends Error {
+export class BadRequest extends Error {
   constructor(public code: string, public detail: string) {
     super(detail);
     this.name = "BadRequest";
