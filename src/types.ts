@@ -95,3 +95,35 @@ export type RawPage = {
   height: number;
   items: RawTextItem[];
 };
+
+// ─── V2 disk artifacts ────────────────────────────────────────────────────
+//
+// Schema version 2 is written by V2 uploads. Pre-V2 manifests are read-tolerant
+// (silently skipped from /api/manifest until the corresponding plan is
+// re-uploaded). See docs/v2-spec.md § Server changes.
+
+export type Plan = {
+  schema_version: 2;
+  pdf_sha256: string;
+  original_filename: string;
+  uploaded_at: string;
+  months: Array<{ year: number; month: number; days_covered: number[] }>;
+  person_hashes: string[];
+};
+
+export type ManifestEntry = {
+  pdf_sha256: string;
+  original_filename: string;
+  uploaded_at: string;
+  months: Array<{ year: number; month: number }>;
+};
+
+export type PersonManifest = {
+  schema_version: 2;
+  name: string;
+  role: string;
+  last_uploaded_at: string;
+  last_pdf_sha256: string;
+  last_date_range: { start: string; end: string };
+  entries: ManifestEntry[];
+};
