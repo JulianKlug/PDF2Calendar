@@ -1,8 +1,10 @@
-// UI state machine — pure module, no DOM. See docs/frontend-spec.md § UI state machine.
+// UI state machine — pure module, no DOM. See docs/v2-spec.md § Frontend
+// changes / State machine.
 //
-// The `success` state extends the spec's definition with `rows` and `fileName` so the
-// post-upload lightbox can serve the in-memory PNGs without a network round-trip
-// (spec § Preview row). Everything else mirrors the spec one-to-one.
+// The admin password is carried explicitly inside the State variants from
+// `auth_prompt` onward so State is the single source of truth (no module-
+// level secrets). It is cleared on every transition to `landing`,
+// `success`, or `error[invalid_admin_password]`.
 
 import {
   type ParseErrorCode,
@@ -23,20 +25,38 @@ export type ErrorCause =
   | { kind: "http_500" }
   | { kind: "network" }
   | { kind: "unexpected_content_type" }
+  | { kind: "invalid_admin_password" }
   | { kind: "unknown"; message?: string };
 
 export type State =
-  | { stage: "idle" }
-  | { stage: "parsing"; file: File }
-  | { stage: "rendering_rows"; file: File; parsed: ParseResult }
+  | { stage: "landing" }
+  | { stage: "auth_prompt" }
+  | { stage: "idle_upload"; admin_password: string }
+  | { stage: "parsing"; admin_password: string; file: File }
+  | {
+      stage: "rendering_rows";
+      admin_password: string;
+      file: File;
+      parsed: ParseResult;
+    }
   | {
       stage: "hashing";
+      admin_password: string;
       file: File;
       parsed: ParseResult;
       rows: Map<string, Blob>;
     }
   | {
+      stage: "confirm_overwrite";
+      admin_password: string;
+      file: File;
+      parsed: ParseResult;
+      rows: Map<string, Blob>;
+      pdf_sha256: string;
+    }
+  | {
       stage: "uploading";
+      admin_password: string;
       file: File;
       parsed: ParseResult;
       rows: Map<string, Blob>;
@@ -55,16 +75,15 @@ export type State =
       cause: ErrorCause;
     };
 
-export const initialState: State = { stage: "idle" };
+export const initialState: State = { stage: "landing" };
 
-// Drop-while-busy rule (spec § UI state machine): drop/dragover handlers MUST
-// no-op when the pipeline is running.
+// Drop-while-busy rule: drop/dragover handlers MUST no-op outside idle_upload.
 export function canDrop(state: State): boolean {
-  return state.stage === "idle";
+  return state.stage === "idle_upload";
 }
 
-// Pre-flight checks (spec § Pre-flight checks). Failures stay in `idle` and
-// surface as an inline message — they do NOT transition to `error`.
+// Pre-flight checks (spec § Pre-flight checks). Failures stay in idle_upload
+// and surface as an inline message — they do NOT transition to `error`.
 export type ValidateFileResult =
   | { ok: true }
   | { ok: false; reason: "wrong_type"; message: string }
@@ -94,30 +113,68 @@ export function validateFile(file: File): ValidateFileResult {
 
 // ─── Transitions ──────────────────────────────────────────────────────────
 
-export function toParsing(state: State, file: File): State {
-  if (state.stage !== "idle") return state;
-  return { stage: "parsing", file };
+// landing → auth_prompt (Upload click on landing).
+// Also accepts error[invalid_admin_password] (Retry from wrong-password screen).
+export function toAuthPrompt(state: State): State {
+  if (state.stage === "landing") return { stage: "auth_prompt" };
+  if (state.stage === "error" && state.cause.kind === "invalid_admin_password") {
+    return { stage: "auth_prompt" };
+  }
+  return state;
 }
 
+// auth_prompt → idle_upload (Submit with password).
+export function toIdleUpload(state: State, admin_password: string): State {
+  if (state.stage !== "auth_prompt") return state;
+  return { stage: "idle_upload", admin_password };
+}
+
+// Always-allowed escape to landing. Clears any held password.
+// Used by: success → landing auto-redirect, Cancel in auth_prompt and
+// confirm_overwrite modals, "Try again" from error screens (non-auth errors).
+export function toLanding(_state: State): State {
+  return { stage: "landing" };
+}
+
+// Back-compat alias for V1 callers. Same semantics as toLanding.
+export const reset = toLanding;
+
+// idle_upload → parsing.
+export function toParsing(state: State, file: File): State {
+  if (state.stage !== "idle_upload") return state;
+  return { stage: "parsing", admin_password: state.admin_password, file };
+}
+
+// parsing → rendering_rows.
 export function toRenderingRows(state: State, parsed: ParseResult): State {
   if (state.stage !== "parsing") return state;
-  return { stage: "rendering_rows", file: state.file, parsed };
+  return {
+    stage: "rendering_rows",
+    admin_password: state.admin_password,
+    file: state.file,
+    parsed,
+  };
 }
 
+// rendering_rows → hashing.
 export function toHashing(state: State, rows: Map<string, Blob>): State {
   if (state.stage !== "rendering_rows") return state;
   return {
     stage: "hashing",
+    admin_password: state.admin_password,
     file: state.file,
     parsed: state.parsed,
     rows,
   };
 }
 
-export function toUploading(state: State, pdf_sha256: string): State {
+// hashing → confirm_overwrite. Spec § Upload flow step 4 — modal shown
+// before the POST so the admin sees what they're about to replace.
+export function toConfirmOverwrite(state: State, pdf_sha256: string): State {
   if (state.stage !== "hashing") return state;
   return {
-    stage: "uploading",
+    stage: "confirm_overwrite",
+    admin_password: state.admin_password,
     file: state.file,
     parsed: state.parsed,
     rows: state.rows,
@@ -125,6 +182,20 @@ export function toUploading(state: State, pdf_sha256: string): State {
   };
 }
 
+// confirm_overwrite → uploading (Confirm in modal).
+export function toUploading(state: State): State {
+  if (state.stage !== "confirm_overwrite") return state;
+  return {
+    stage: "uploading",
+    admin_password: state.admin_password,
+    file: state.file,
+    parsed: state.parsed,
+    rows: state.rows,
+    pdf_sha256: state.pdf_sha256,
+  };
+}
+
+// uploading → success. Clears admin_password (spec § State machine).
 export function toSuccess(
   state: State,
   result: UploadResponse,
@@ -139,19 +210,15 @@ export function toSuccess(
   };
 }
 
+// any busy → error. Idempotent on terminal/idle states.
 export function toError(state: State, cause: ErrorCause): State {
   if (
-    state.stage === "idle" ||
-    state.stage === "success" ||
-    state.stage === "error"
+    state.stage === "parsing" ||
+    state.stage === "rendering_rows" ||
+    state.stage === "hashing" ||
+    state.stage === "uploading"
   ) {
-    return state;
+    return { stage: "error", from_stage: state.stage, cause };
   }
-  return { stage: "error", from_stage: state.stage, cause };
-}
-
-// Reset rule (spec § UI state machine): success → idle and error → idle wipe
-// all state including parsed result and rendered Blobs.
-export function reset(_state: State): State {
-  return { stage: "idle" };
+  return state;
 }

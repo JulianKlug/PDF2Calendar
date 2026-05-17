@@ -251,4 +251,63 @@ describe("uploadToServer", () => {
       errorCause: { kind: "unknown" },
     });
   });
+
+  test("401 → invalid_admin_password", async () => {
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ error: "invalid_admin_password" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    await expect(uploadToServer(fd(), "")).rejects.toMatchObject({
+      errorCause: { kind: "invalid_admin_password" },
+    });
+  });
+
+  test("400 with code:csrf → unknown (SPA-side bug — header should always be present)", async () => {
+    mockFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: "missing header", code: "csrf" }),
+          {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
+    // Suppress the console.error the upload path emits for diagnostics.
+    const origErr = console.error;
+    console.error = () => undefined;
+    try {
+      await expect(uploadToServer(fd(), "")).rejects.toMatchObject({
+        errorCause: { kind: "unknown" },
+      });
+    } finally {
+      console.error = origErr;
+    }
+  });
+
+  test("uploadToServer sends X-PDF2Cal-Admin: 1 header", async () => {
+    let capturedHeaders: Record<string, string> | null = null;
+    globalThis.fetch = ((url: string, init: RequestInit) => {
+      const h: Record<string, string> = {};
+      const headers = init.headers as Record<string, string> | Headers | undefined;
+      if (headers instanceof Headers) {
+        headers.forEach((v, k) => (h[k] = v));
+      } else if (headers) {
+        for (const [k, v] of Object.entries(headers)) h[k.toLowerCase()] = v;
+      }
+      capturedHeaders = h;
+      return Promise.resolve(
+        new Response(JSON.stringify({ feeds: [], unknown_codes: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }) as unknown as typeof fetch;
+    await uploadToServer(fd(), "");
+    expect(capturedHeaders).not.toBeNull();
+    expect(capturedHeaders!["x-pdf2cal-admin"]).toBe("1");
+  });
 });
