@@ -17,8 +17,8 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 - Weekend / public holiday (`Lw1`–`Lw6`): 08:00 – 20:30
 - Single-digit suffix is the unit number (1–6).
 - Two-digit suffix is a unit range (`X` to `Y`): `L34` covers units 3–4;
-  `Lw12` covers 1–2, `Lw13` covers 1–3, `Lw46` covers 4–6, `Lw56` covers
-  5–6. Hours are unchanged.
+  `Lw12` covers 1–2, `Lw13` covers 1–3, `Lw45` covers 4–5, `Lw46` covers
+  4–6, `Lw56` covers 5–6. Hours are unchanged.
 
 ## Family — night shift (`N` / `Nw`)
 
@@ -45,6 +45,7 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 - `SC` — Soins Continus DC
 - `FI` — Formation interne
 - `FE` — Formation externe
+- `FE2` — Formation externe (variant; same as `FE`)
 - `CHV` — TODO: clarify full meaning
 - `CAR` — TODO: clarify full meaning
 
