@@ -167,6 +167,7 @@ export function parsePages(
   // Step 6: merge per-page rows into people, collect unknown codes.
   const people = mergePeople(allPageRows, columns, warnings);
   const unknown_codes = collectUnknownCodes(people);
+  warnings.push(...scanWhitespaceInCodes(people));
 
   const result: ParseResult = {
     source: {
@@ -525,20 +526,28 @@ function extractCells(
   const cells: string[][] = columns.map(() => []);
   const sorted = items.slice().sort((a, b) => a.x - b.x);
   for (const it of sorted) {
-    const xc = it.x + it.width / 2;
-    let bestIdx = -1;
-    let bestDist = Infinity;
-    for (let i = 0; i < columns.length; i++) {
-      const center = columns[i]!.x_right - half;
-      const dist = Math.abs(xc - center);
-      if (dist <= half && dist < bestDist) {
-        bestDist = dist;
-        bestIdx = i;
+    const trimmed = it.str.trim();
+    if (!trimmed) continue;
+    // pdfjs sometimes emits a run of consecutive same-row shifts (e.g. several
+    // overnight shifts in a row) as a single text item with str="Nw46 Nw46 N46".
+    // Split on whitespace and place each token in its own column by its
+    // proportional position within the run; for n=1 this is identical to
+    // snapping the item's own x_center to the nearest column.
+    const tokens = trimmed.split(/\s+/);
+    const slice = it.width / tokens.length;
+    for (let t = 0; t < tokens.length; t++) {
+      const subXc = it.x + (t + 0.5) * slice;
+      let bestIdx = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < columns.length; i++) {
+        const center = columns[i]!.x_right - half;
+        const dist = Math.abs(subXc - center);
+        if (dist <= half && dist < bestDist) {
+          bestDist = dist;
+          bestIdx = i;
+        }
       }
-    }
-    if (bestIdx >= 0) {
-      const trimmed = it.str.trim();
-      if (trimmed) cells[bestIdx]!.push(trimmed);
+      if (bestIdx >= 0) cells[bestIdx]!.push(tokens[t]!);
     }
   }
   return cells;
@@ -625,6 +634,25 @@ function mergePeople(
       row_band: rows[0]!.row_band,
     };
   });
+}
+
+// Defensive invariant: no V1 shift code contains whitespace. If extractCells
+// ever lets a multi-shift concatenation through (pdfjs version change, new
+// PDF font quirk), each offending code shows up here as a warning that the
+// client surfaces to the developer console — captures the failure with
+// enough context (person/date/code) to reproduce.
+export function scanWhitespaceInCodes(people: ParsedPerson[]): ParseWarning[] {
+  const out: ParseWarning[] = [];
+  for (const p of people) {
+    for (const d of p.days) {
+      for (const c of d.codes) {
+        if (/\s/.test(c)) {
+          out.push({ kind: "whitespace_in_code", name: p.name, date: d.date, code: c });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 function collectUnknownCodes(people: ParsedPerson[]): string[] {

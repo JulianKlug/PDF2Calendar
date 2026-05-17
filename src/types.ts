@@ -54,7 +54,12 @@ export type ParseWarning =
   | { kind: "row_length_mismatch"; name: string; expected: number; got: number }
   | { kind: "month_band_inference"; reason: string }
   | { kind: "unrecognized_role_header"; text: string; row: number }
-  | { kind: "header_missing_year"; assumed_year: number };
+  | { kind: "header_missing_year"; assumed_year: number }
+  // Sentinel: no V1 shift code contains whitespace. Seeing one means the
+  // parser's per-column split missed a pdfjs multi-shift concatenation
+  // (e.g. "Nw46 Nw46 N46" emitted as one text item). Hard signal of a
+  // parser regression — surface loudly so a real PDF can be captured.
+  | { kind: "whitespace_in_code"; name: string; date: string; code: string };
 
 export type ParseErrorCode =
   | "no_text_layer"

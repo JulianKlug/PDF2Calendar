@@ -6,6 +6,7 @@ import {
   ParseError,
   type ParseErrorCode,
   type ParseResult,
+  type ParseWarning,
 } from "../src/types.ts";
 import { parse } from "../src/parser.ts";
 // pdfjs worker — set workerSrc once before any getDocument() call so the
@@ -192,6 +193,13 @@ function renderSuccess(
   } in this PDF`;
   screen.appendChild(heading);
 
+  const anomalies = parsed.warnings.filter(
+    (w) => w.kind === "whitespace_in_code",
+  );
+  if (anomalies.length > 0) {
+    screen.appendChild(renderParserAnomalyBanner(anomalies));
+  }
+
   if (result.unknown_codes.length > 0) {
     screen.appendChild(renderUnknownCodesBanner(result.unknown_codes));
   }
@@ -212,6 +220,57 @@ function renderSuccess(
   screen.appendChild(reupload);
 
   return screen;
+}
+
+type WhitespaceWarning = Extract<ParseWarning, { kind: "whitespace_in_code" }>;
+
+function renderParserAnomalyBanner(
+  anomalies: WhitespaceWarning[],
+): HTMLElement {
+  const banner = el("div", {
+    class: "banner banner-error",
+    role: "alert",
+    "aria-labelledby": "anomaly-heading",
+  });
+  const h2 = el("h2", { id: "anomaly-heading" });
+  h2.textContent = "Parsing issue detected";
+  banner.appendChild(h2);
+
+  const body = el("div", { class: "banner-body" });
+  const plural = anomalies.length === 1 ? "shift" : "shifts";
+  body.appendChild(
+    document.createTextNode(
+      `${anomalies.length} ${plural} couldn't be split correctly and may be missing or wrong in the calendar (`,
+    ),
+  );
+  // Show up to 3 offending entries inline so the user has something concrete
+  // to report. Each looks like "Klug, J 2026-05-04: Nw46 Nw46 N46".
+  const sample = anomalies
+    .slice(0, 3)
+    .map((a) => `${a.name} ${a.date}: ${a.code}`)
+    .join("; ");
+  const codesEl = el("span", { class: "banner-codes" });
+  codesEl.textContent = sample;
+  body.appendChild(codesEl);
+  body.appendChild(
+    document.createTextNode(
+      anomalies.length > 3
+        ? `; +${anomalies.length - 3} more). Please report this PDF.`
+        : "). Please report this PDF.",
+    ),
+  );
+  banner.appendChild(body);
+
+  const dismiss = el("button", {
+    class: "banner-dismiss",
+    "aria-label": "Dismiss",
+    type: "button",
+  }) as HTMLButtonElement;
+  dismiss.textContent = "×";
+  dismiss.addEventListener("click", () => banner.remove());
+  banner.appendChild(dismiss);
+
+  return banner;
 }
 
 function renderUnknownCodesBanner(codes: string[]): HTMLElement {
@@ -591,6 +650,20 @@ async function runPipeline(file: File): Promise<void> {
     if (labelTimer) {
       clearTimeout(labelTimer);
       labelTimer = null;
+    }
+
+    // Inflight invariant: shift codes never contain whitespace. A
+    // `whitespace_in_code` warning means the parser's per-column split
+    // missed a pdfjs multi-shift concatenation — log loudly so the
+    // failing PDF surfaces in browser logs.
+    const anomalies = parsed.warnings.filter(
+      (w) => w.kind === "whitespace_in_code",
+    );
+    if (anomalies.length > 0) {
+      console.error(
+        `[pdf2calendar] parser anomaly: ${anomalies.length} code(s) contain whitespace — likely a multi-shift item the parser failed to split. File: ${file.name}`,
+        anomalies,
+      );
     }
 
     // Validation rule 1: at least one person.
