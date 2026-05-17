@@ -9,34 +9,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export type PlanInfo = {
-  pdf_sha256: string;
-  original_filename: string;
-  uploaded_at: string;
-  months: Array<{ year: number; month: number; days_covered: number[] }>;
-};
+import type {
+  ManifestPlanInfo as PlanInfo,
+  ManifestResponse,
+  ManifestStaffEntry as StaffEntry,
+} from "./types.ts";
 
-export type StaffEntry = {
-  person_hash: string;
-  name: string;
-  role: string;
-  feed_url: string;
-  entries: Array<{
-    pdf_sha256: string;
-    original_filename: string;
-    uploaded_at: string;
-    months: Array<{ year: number; month: number }>;
-    row_url: string;
-  }>;
-};
-
-export type ManifestResponse = {
-  schema_version: 2;
-  department_slug: string;
-  latest_plan: PlanInfo | null;
-  plans: PlanInfo[];
-  staff: StaffEntry[];
-};
+export type { ManifestResponse, PlanInfo, StaffEntry };
 
 export type ManifestCacheOpts = {
   dataDir: string;

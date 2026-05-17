@@ -127,3 +127,38 @@ export type PersonManifest = {
   last_date_range: { start: string; end: string };
   entries: ManifestEntry[];
 };
+
+// ─── /api/manifest response shape ─────────────────────────────────────────
+//
+// Returned by GET /api/manifest. Shared between server (src/manifest-cache.ts)
+// and frontend (web/main.ts) so the frontend can type the fetch result
+// without importing node:fs-flavored modules.
+
+export type ManifestPlanInfo = {
+  pdf_sha256: string;
+  original_filename: string;
+  uploaded_at: string;
+  months: Array<{ year: number; month: number; days_covered: number[] }>;
+};
+
+export type ManifestStaffEntry = {
+  person_hash: string;
+  name: string;
+  role: string;
+  feed_url: string;
+  entries: Array<{
+    pdf_sha256: string;
+    original_filename: string;
+    uploaded_at: string;
+    months: Array<{ year: number; month: number }>;
+    row_url: string;
+  }>;
+};
+
+export type ManifestResponse = {
+  schema_version: 2;
+  department_slug: string;
+  latest_plan: ManifestPlanInfo | null;
+  plans: ManifestPlanInfo[];
+  staff: ManifestStaffEntry[];
+};

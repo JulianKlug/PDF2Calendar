@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
     <title>pdf2calendar</title>
     <style>
       :root {
@@ -361,17 +362,41 @@
         inset: 0;
         background: rgba(0, 0, 0, 0.7);
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         z-index: 1000;
         padding: var(--space-4);
         overflow: auto;
       }
 
-      .lightbox-img {
+      .lightbox-stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
         max-width: 95vw;
-        max-height: 90vh;
+        margin: auto;
+      }
+
+      .lightbox-fig {
+        margin: 0;
         background: var(--bg);
+        border-radius: var(--radius);
+        padding: var(--space-3);
+      }
+
+      .lightbox-img {
+        display: block;
+        max-width: 100%;
+        max-height: 80vh;
+        background: var(--bg);
+        margin: 0 auto;
+      }
+
+      .lightbox-caption {
+        margin-top: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--text-muted);
+        text-align: center;
       }
 
       .lightbox-close {
@@ -387,6 +412,140 @@
         font-size: var(--text-lg);
         cursor: pointer;
         line-height: 1;
+      }
+
+      /* ── Modal (auth prompt + confirm overwrite) ───────────────────────── */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 900;
+        padding: var(--space-4);
+      }
+
+      .modal-card {
+        background: var(--bg);
+        border-radius: var(--radius);
+        padding: var(--space-6);
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      }
+
+      .modal-card h2 {
+        margin: 0 0 var(--space-3) 0;
+        font-size: var(--text-lg);
+        font-weight: 500;
+      }
+
+      .modal-body {
+        margin: 0 0 var(--space-4) 0;
+        font-size: var(--text-sm);
+      }
+
+      .modal-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+      }
+
+      .modal-label {
+        font-size: var(--text-sm);
+        font-weight: 500;
+      }
+
+      .modal-input {
+        font-family: inherit;
+        font-size: var(--text-base);
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        min-height: 44px;
+      }
+
+      .modal-input:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+
+      .modal-error {
+        color: var(--error);
+        background: #fdecea;
+        border: 1px solid var(--error);
+        border-radius: var(--radius);
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--text-sm);
+        margin-bottom: var(--space-3);
+      }
+
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-3);
+        margin-top: var(--space-3);
+      }
+
+      /* ── Landing page ──────────────────────────────────────────────────── */
+      .landing-screen {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: var(--space-8) var(--space-6);
+        width: 100%;
+      }
+
+      .landing-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        margin-bottom: var(--space-6);
+        flex-wrap: wrap;
+      }
+
+      .landing-title {
+        font-size: var(--text-xl);
+        font-weight: 500;
+        margin: 0;
+      }
+
+      .latest-plan-caption {
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        margin: 0 0 var(--space-6) 0;
+      }
+
+      .landing-skeleton {
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        padding: var(--space-6) 0;
+        text-align: center;
+      }
+
+      .landing-error {
+        text-align: center;
+        padding: var(--space-6) 0;
+      }
+
+      .landing-empty {
+        text-align: center;
+        padding: var(--space-8) 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-3);
+      }
+
+      .landing-empty-msg {
+        font-size: var(--text-lg);
+        color: var(--text-muted);
+        margin: 0;
+      }
+
+      .drop-cancel-row {
+        margin-top: var(--space-4);
       }
 
       /* ── Error screen ──────────────────────────────────────────────────── */
