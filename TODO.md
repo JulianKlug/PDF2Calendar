@@ -5,9 +5,14 @@ Everything below is currently *deferred* in the V1 specs — nothing here
 blocks production use. Brackets after each item point at the source spec
 where the item is described in fuller form.
 
+**V2 spec (DRAFT, 2026-05-17): `docs/v2-spec.md`** — admin-gated uploads,
+landing-page staff index, overwrite confirmation. Covers the items below
+marked *(V2)*.
+
 ## Server / API
 
-- [ ] `GET /api/manifest` admin listing endpoint, behind basic auth
+- [ ] `GET /api/manifest` admin listing endpoint *(V2 — now public,
+      gated only on the upload write path; see `docs/v2-spec.md`)*
       (`docs/server-spec.md` § Out of scope, line 833)
 - [ ] `GET /source/<pdf_sha256>.pdf` full-PDF view, behind auth
       (`docs/server-spec.md`:834)
@@ -60,8 +65,10 @@ where the item is described in fuller form.
 
 ## Identity / auth
 
-- [ ] Per-user authentication, OAuth, email
-      (`docs/server-spec.md`:838) — gates the admin endpoints above
+- [ ] Admin password gate on `/api/upload` *(V2 — env-hardcoded
+      `PDF2CAL_ADMIN_PASSWORD`; see `docs/v2-spec.md`)*
+- [ ] Per-user authentication, OAuth, email — post-V2
+      (`docs/server-spec.md`:838); supersedes the admin password gate
 
 ## Explicitly NOT planned
 
