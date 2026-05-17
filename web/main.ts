@@ -213,7 +213,7 @@ function mountLandingBody(body: HTMLElement, data: ManifestResponse): void {
 
   const groups = groupStaffByRole(data.staff);
   for (const g of groups) {
-    body.appendChild(renderStaffRoleGroup(g));
+    body.appendChild(renderStaffListGroup(g));
   }
 }
 
