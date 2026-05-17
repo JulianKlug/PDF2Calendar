@@ -100,10 +100,16 @@ match exactly** — drift breaks every `person_hash`. nginx's
 
 ```sh
 cd /opt/pdf2calendar
-sudo -u pdf2calendar bash -c 'git pull && bun install --frozen-lockfile && bun run build'
+sudo -u pdf2calendar bash -c 'git pull && bun install --frozen-lockfile && VITE_DEPARTMENT_SLUG=<slug> bun run build'
 sudo rsync -a --delete dist/ /var/www/pdf2calendar/dist/
 sudo systemctl restart pdf2calendar
+systemctl status pdf2calendar --no-pager
+curl -fsS https://<host>/healthz
 ```
+
+`<slug>` must match `PDF2CAL_DEPARTMENT_SLUG` in the systemd unit — drift
+breaks every `person_hash` and every upload 400s. The build reads
+`process.env` directly, so a `.env.production` file alone won't satisfy it.
 
 To roll back: `git checkout <prev-sha>` in place of `git pull`, then rebuild.
 
