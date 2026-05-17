@@ -17,6 +17,7 @@ import {
 } from "../src/server.ts";
 
 const DEPT = "anesthesia-chuv";
+const ADMIN_PASSWORD = "correct-horse-battery-staple";
 
 let server: ServerLike;
 let env: Env;
@@ -30,6 +31,7 @@ beforeEach(async () => {
     baseUrl: "http://localhost:3001",
     departmentSlug: DEPT,
     maxUploadBytes: 10 * 1024 * 1024,
+    adminPassword: ADMIN_PASSWORD,
   };
   await bootstrap(env);
   server = createServer(env);
@@ -79,6 +81,8 @@ type PayloadSpec = {
   pdfBytes?: Uint8Array;
   department?: string;
   source_file_name?: string;
+  original_filename?: string;
+  admin_password?: string;
   date_range?: { start: string; end: string };
   months?: Array<{ year: number; month: number; days_covered: number[] }>;
   people: Person[];
@@ -103,13 +107,16 @@ async function buildPayload(spec: PayloadSpec): Promise<{
   }
   const pdf = spec.pdfBytes ?? pdfBytes("pdf-a");
   const pdfSha = spec.pdfSha ?? (await sha256Hex(pdf));
-  const payload = {
+  const payload: Record<string, unknown> = {
     department: dept,
     pdf_sha256: pdfSha,
     source_file_name: spec.source_file_name ?? "shifts.pdf",
     date_range: spec.date_range ?? { start: "2026-05-01", end: "2026-05-31" },
     months: spec.months ?? [{ year: 2026, month: 5, days_covered: [15] }],
     people: peopleOut,
+    admin_password: spec.admin_password ?? ADMIN_PASSWORD,
+    original_filename:
+      spec.original_filename ?? spec.source_file_name ?? "shifts.pdf",
   };
   return { payload, hashes };
 }
@@ -119,6 +126,8 @@ type FormOpts = {
   pdf?: { bytes: Uint8Array; type?: string; filename?: string } | null;
   rows?: Array<{ hash: string; bytes?: Uint8Array; type?: string; filename?: string }>;
   contentType?: string;
+  // When true, omit the X-PDF2Cal-Admin header to exercise the CSRF gate.
+  omitAdminHeader?: boolean;
 };
 
 async function postUpload(opts: FormOpts): Promise<Response> {
@@ -150,7 +159,9 @@ async function postUpload(opts: FormOpts): Promise<Response> {
       row.filename ?? `row_${row.hash}.png`,
     );
   }
-  return fetch(`${baseUrl}/api/upload`, { method: "POST", body: form });
+  const headers: Record<string, string> = {};
+  if (!opts.omitAdminHeader) headers["x-pdf2cal-admin"] = "1";
+  return fetch(`${baseUrl}/api/upload`, { method: "POST", body: form, headers });
 }
 
 async function postHappy(spec: PayloadSpec): Promise<{
@@ -389,7 +400,10 @@ describe("415 — bad content types", () => {
   test("request Content-Type not multipart", async () => {
     const res = await fetch(`${baseUrl}/api/upload`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-pdf2cal-admin": "1",
+      },
       body: "{}",
     });
     expect(res.status).toBe(415);
@@ -723,6 +737,173 @@ describe("/api/manifest — empty data dir", () => {
     expect(body.latest_plan).toBeNull();
     expect(body.plans).toEqual([]);
     expect(body.staff).toEqual([]);
+  });
+});
+
+describe("400 — csrf", () => {
+  test("missing X-PDF2Cal-Admin header → 400 csrf, no files written", async () => {
+    const built = await buildPayload({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+    const res = await postUpload({
+      payload: built.payload,
+      pdf: { bytes: pdfBytes() },
+      rows,
+      omitAdminHeader: true,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("csrf");
+    expect(await readdir(join(env.dataDir, "feeds"))).toEqual([]);
+  });
+
+  test("X-PDF2Cal-Admin: 'true' (not '1') → 400 csrf", async () => {
+    const built = await buildPayload({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+    // Construct fetch by hand so the header value is exactly "true".
+    const form = new FormData();
+    form.append(
+      "payload",
+      new Blob([JSON.stringify(built.payload)], { type: "application/json" }),
+      "payload.json",
+    );
+    form.append(
+      "pdf",
+      new Blob([pdfBytes() as unknown as BlobPart], { type: "application/pdf" }),
+      "shifts.pdf",
+    );
+    for (const r of rows) {
+      form.append(
+        `row_${r.hash}`,
+        new Blob([pngBytes() as unknown as BlobPart], { type: "image/png" }),
+        `row_${r.hash}.png`,
+      );
+    }
+    const res = await fetch(`${baseUrl}/api/upload`, {
+      method: "POST",
+      body: form,
+      headers: { "x-pdf2cal-admin": "true" },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("csrf");
+  });
+});
+
+describe("401 — invalid_admin_password", () => {
+  test("wrong password → 401 invalid_admin_password + stderr WARN line", async () => {
+    const built = await buildPayload({
+      admin_password: "wrong-password",
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+
+    const captured: string[] = [];
+    const origErr = console.error;
+    console.error = (...args: unknown[]) => {
+      captured.push(String(args[0]));
+    };
+    let res: Response;
+    try {
+      res = await postUpload({
+        payload: built.payload,
+        pdf: { bytes: pdfBytes() },
+        rows,
+      });
+    } finally {
+      console.error = origErr;
+    }
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("invalid_admin_password");
+    expect(
+      captured.some((l) => l.includes("WARN admin_password_mismatch from=")),
+    ).toBe(true);
+    // No files written.
+    expect(await readdir(join(env.dataDir, "feeds"))).toEqual([]);
+  });
+
+  test("missing admin_password → 400 schema (caught before password check)", async () => {
+    const built = await buildPayload({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    // Strip the field entirely.
+    delete (built.payload as Record<string, unknown>).admin_password;
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+    const res = await postUpload({
+      payload: built.payload,
+      pdf: { bytes: pdfBytes() },
+      rows,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("schema");
+  });
+});
+
+describe("400 — original_filename validation", () => {
+  test("missing original_filename → 400 schema", async () => {
+    const built = await buildPayload({
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    delete (built.payload as Record<string, unknown>).original_filename;
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+    const res = await postUpload({
+      payload: built.payload,
+      pdf: { bytes: pdfBytes() },
+      rows,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("schema");
+  });
+
+  test("control character in original_filename → 400 schema", async () => {
+    const built = await buildPayload({
+      original_filename: "evil\x00.pdf",
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+    const res = await postUpload({
+      payload: built.payload,
+      pdf: { bytes: pdfBytes() },
+      rows,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("schema");
+  });
+
+  test("forward slash in original_filename → 400 schema", async () => {
+    const built = await buildPayload({
+      original_filename: "../etc/passwd",
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    const rows = Array.from(built.hashes.keys()).map((h) => ({ hash: h }));
+    const res = await postUpload({
+      payload: built.payload,
+      pdf: { bytes: pdfBytes() },
+      rows,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("schema");
+  });
+
+  test("original_filename surfaces in plan + manifest entries", async () => {
+    const { res, pdfSha } = await postHappy({
+      original_filename: "Plan_Mai_2026.pdf",
+      people: [{ role: "ma", name: "Klug, J", days: [{ date: "2026-05-15", codes: ["C2"] }] }],
+    });
+    expect(res.status).toBe(200);
+    const plan = JSON.parse(
+      await readFile(join(env.dataDir, "plans", `${pdfSha}.json`), "utf-8"),
+    );
+    expect(plan.original_filename).toBe("Plan_Mai_2026.pdf");
+    const manifest = JSON.parse(
+      await readFile(
+        join(env.dataDir, "manifest", "79897ea12fbe8e91.json"),
+        "utf-8",
+      ),
+    );
+    expect(manifest.entries[0].original_filename).toBe("Plan_Mai_2026.pdf");
   });
 });
 

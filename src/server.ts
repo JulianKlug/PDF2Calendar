@@ -10,6 +10,12 @@ import type {
   UploadResponse,
   UploadResponseFeed,
 } from "../web/api.ts";
+import {
+  logAuthFailure,
+  requireAdminHeader,
+  sanitizeOriginalFilename,
+  verifyAdminPassword,
+} from "./admin-auth.ts";
 import { isKnownCode, codes as V1_CODES_TABLE } from "./codes.ts";
 import { mergeIcs, type GenerateInput } from "./ics.ts";
 import { ManifestCache } from "./manifest-cache.ts";
@@ -25,6 +31,7 @@ export type Env = {
   baseUrl: string;
   departmentSlug: string;
   maxUploadBytes: number;
+  adminPassword: string;
 };
 
 export function readEnv(source: Record<string, string | undefined> = process.env): Env {
@@ -49,7 +56,17 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     die(`PDF2CAL_MAX_UPLOAD_BYTES invalid: ${source.PDF2CAL_MAX_UPLOAD_BYTES}`);
   }
 
-  return { port, dataDir: dataDir!, baseUrl: baseUrl!, departmentSlug: departmentSlug!, maxUploadBytes };
+  const adminPassword = source.PDF2CAL_ADMIN_PASSWORD;
+  if (!adminPassword) die("PDF2CAL_ADMIN_PASSWORD is required (empty string counts as unset)");
+
+  return {
+    port,
+    dataDir: dataDir!,
+    baseUrl: baseUrl!,
+    departmentSlug: departmentSlug!,
+    maxUploadBytes,
+    adminPassword: adminPassword!,
+  };
 }
 
 function die(msg: string): never {
@@ -266,6 +283,13 @@ function validatePayload(json: unknown): UploadPayload {
     }
   }
 
+  // V2: admin_password + original_filename are required. Wrong-value rejection
+  // happens later (verifyAdminPassword → 401, sanitizeOriginalFilename → 400).
+  if (!isString(p.admin_password) || p.admin_password.length === 0)
+    throw new BadRequest("schema", "admin_password missing or empty");
+  if (!isString(p.original_filename) || p.original_filename.length === 0)
+    throw new BadRequest("schema", "original_filename missing or empty");
+
   return p as unknown as UploadPayload;
 }
 
@@ -301,6 +325,16 @@ async function handleUpload(
   env: Env,
   cache: ManifestCache,
 ): Promise<Response> {
+  // Step 0 — CSRF defense. Browsers can't send X-PDF2Cal-Admin cross-origin
+  // without a CORS preflight; we don't allow that origin in CORS. Catches
+  // form-style CSRF before any other work.
+  try {
+    requireAdminHeader(req);
+  } catch (e) {
+    if (e instanceof BadRequest) return errorResponse(400, e.detail, e.code);
+    throw e;
+  }
+
   // Step 1 — parse multipart
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
   if (!contentType.startsWith("multipart/form-data")) {
@@ -351,6 +385,24 @@ async function handleUpload(
     if (e instanceof BadRequest) return errorResponse(400, e.detail, e.code);
     return errorResponse(400, `payload JSON parse failed: ${(e as Error).message}`, "schema");
   }
+
+  // Step 2b — password check BEFORE any hash work, so a wrong password
+  // never burns a SHA-256 over the PDF bytes. Logged to stderr (journald).
+  if (!verifyAdminPassword(payload.admin_password ?? "", env.adminPassword)) {
+    logAuthFailure(req);
+    return errorResponse(401, "invalid_admin_password");
+  }
+
+  // Step 2c — sanitize original_filename (control chars / path seps rejected,
+  // truncate to 200).
+  let sanitizedOriginalFilename: string;
+  try {
+    sanitizedOriginalFilename = sanitizeOriginalFilename(payload.original_filename ?? "");
+  } catch (e) {
+    if (e instanceof BadRequest) return errorResponse(400, e.detail, e.code);
+    throw e;
+  }
+  payload.original_filename = sanitizedOriginalFilename;
 
   // Step 3 — verify PDF bytes
   const pdfBytes = new Uint8Array(await pdfPart.arrayBuffer());

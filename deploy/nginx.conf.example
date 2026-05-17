@@ -57,10 +57,21 @@ server {
     }
 
     # Upload endpoint — rate-limited, proxied to Bun.
+    # X-Forwarded-For is set ONLY here (not on the manifest endpoint or static
+    # locations) so the Bun handler can log the source IP on 401
+    # admin_password_mismatch lines. The p2c access-log format above stays
+    # redacted; the IP only ends up in the WARN stderr line on auth failure.
     location = /api/upload {
         limit_req zone=p2c_upload burst=10 nodelay;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_pass http://127.0.0.1:3001;
         proxy_request_buffering on;
+    }
+
+    # Manifest endpoint — read-only public listing. No rate-limit, no
+    # proxy_cache (Bun's in-process cache handles scan-and-join at scale).
+    location = /api/manifest {
+        proxy_pass http://127.0.0.1:3001;
     }
 
     location = /healthz {

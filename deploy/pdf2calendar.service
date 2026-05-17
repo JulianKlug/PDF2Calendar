@@ -10,6 +10,10 @@ Environment=PDF2CAL_PORT=3001
 Environment=PDF2CAL_DATA_DIR=/var/lib/pdf2calendar
 Environment=PDF2CAL_BASE_URL=https://pdf2calendar.example.com
 Environment=PDF2CAL_DEPARTMENT_SLUG=anesthesia-chuv
+# Shared admin secret for /api/upload. Rotate by editing this line and
+# running `systemctl daemon-reload && systemctl restart pdf2calendar`.
+# Empty string counts as unset and fails the boot check.
+Environment=PDF2CAL_ADMIN_PASSWORD=replace-me-at-deploy-time
 ExecStart=/usr/local/bin/bun run src/server.ts
 Restart=always
 RestartSec=2
