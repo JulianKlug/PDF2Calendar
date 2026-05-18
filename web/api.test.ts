@@ -290,7 +290,7 @@ describe("uploadToServer", () => {
 
   test("uploadToServer sends X-PDF2Cal-Admin: 1 header", async () => {
     let capturedHeaders: Record<string, string> | null = null;
-    globalThis.fetch = ((url: string, init: RequestInit) => {
+    globalThis.fetch = ((_url: string, init: RequestInit) => {
       const h: Record<string, string> = {};
       const headers = init.headers as Record<string, string> | Headers | undefined;
       if (headers instanceof Headers) {
