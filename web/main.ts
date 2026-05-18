@@ -34,6 +34,7 @@ import {
 } from "./admin-auth.ts";
 import { pdfHash } from "./pdf-hash.ts";
 import { personHash } from "./person-hash.ts";
+import { plansShareAnyDate } from "./plan-overlap.ts";
 import { renderRowImages, type RowJob } from "./row-image.ts";
 import {
   canDrop,
@@ -338,7 +339,7 @@ function renderConfirmOverwriteScreen(s: State & { stage: "confirm_overwrite" })
   const incomingMonths = formatMonths(s.parsed.months);
   const incomingName = s.file.name;
   const latest = manifestSnapshot?.latest_plan ?? null;
-  if (latest) {
+  if (latest && plansShareAnyDate(s.parsed.months, latest.months)) {
     body.appendChild(document.createTextNode("You are about to replace "));
     body.appendChild(strong(latest.original_filename));
     body.appendChild(
@@ -350,6 +351,20 @@ function renderConfirmOverwriteScreen(s: State & { stage: "confirm_overwrite" })
     body.appendChild(
       document.createTextNode(
         ` (${incomingMonths}). Existing events on overlapping dates will be overwritten.`,
+      ),
+    );
+  } else if (latest) {
+    body.appendChild(document.createTextNode("You are about to add "));
+    body.appendChild(strong(incomingName));
+    body.appendChild(
+      document.createTextNode(
+        ` (${incomingMonths}). The existing plan `,
+      ),
+    );
+    body.appendChild(strong(latest.original_filename));
+    body.appendChild(
+      document.createTextNode(
+        ` (${formatMonths(latest.months)}, uploaded ${formatTimestamp(latest.uploaded_at)}) covers different dates and will be kept.`,
       ),
     );
   } else {
