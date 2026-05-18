@@ -65,7 +65,7 @@ export const codes: Record<string, Code> = {
   // L/Lw ranged variants — two-digit suffix is the unit range.
   L34: longShift("3-4", false),
   Lw12: longShift("1-2", true), Lw13: longShift("1-3", true),
-  Lw46: longShift("4-6", true), Lw56: longShift("5-6", true),
+  Lw45: longShift("4-5", true), Lw46: longShift("4-6", true), Lw56: longShift("5-6", true),
 
   // N — night shift (crosses midnight)
   N13: nightShift("1-3", false),
@@ -100,6 +100,7 @@ export const codes: Record<string, Code> = {
   SC: { kind: "allday", title: "Soins Continus DC" },
   FI: { kind: "allday", title: "Formation interne" },
   FE: { kind: "allday", title: "Formation externe" },
+  FE2: { kind: "allday", title: "Formation externe" },
   CHV: { kind: "allday", title: "CHV" },
   CAR: { kind: "allday", title: "CAR" },
 

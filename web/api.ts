@@ -18,6 +18,11 @@ export type UploadPayload = {
     person_hash: string;
     days: ParsedDay[];
   }>;
+  // V2 additions. Optional at the type level so commit 4 (server-side plan
+  // write) can land before commit 5 (admin gate). The runtime requirement
+  // is added in commit 5 (validatePayload + verifyAdminPassword).
+  admin_password?: string;
+  original_filename?: string;
 };
 
 export type UploadResponseFeed = {
@@ -79,6 +84,10 @@ export function buildMultipart(
 
 // Map an HTTP response (or network failure) to a typed ErrorCause. Caller
 // decides what to do with it; this module never touches the DOM.
+//
+// Always sends the X-PDF2Cal-Admin: 1 CSRF header. Browsers can't add custom
+// headers cross-origin without a CORS preflight, so a form-style CSRF can
+// never satisfy this — see docs/v2-spec.md § Decisions / CSRF defense.
 export async function uploadToServer(
   formData: FormData,
   baseUrl: string,
@@ -87,19 +96,45 @@ export async function uploadToServer(
   try {
     res = await fetch(`${baseUrl}/api/upload`, {
       method: "POST",
+      headers: { "x-pdf2cal-admin": "1" },
       body: formData,
     });
   } catch {
     throw new UploadError({ kind: "network" });
   }
 
+  if (res.status === 401) {
+    // Server confirmed the password was wrong. Per spec § Upload flow step 6,
+    // the SPA surfaces this as a "Wrong admin password" error with a Retry
+    // button that returns to the password modal.
+    throw new UploadError({ kind: "invalid_admin_password" });
+  }
+
   if (res.status === 400) {
     let serverMessage: string | undefined;
+    let code: string | undefined;
     try {
-      const body = (await res.clone().json()) as { error?: unknown };
+      const body = (await res.clone().json()) as {
+        error?: unknown;
+        code?: unknown;
+      };
       if (typeof body?.error === "string") serverMessage = body.error;
+      if (typeof body?.code === "string") code = body.code;
     } catch {
       // body wasn't JSON; fall through with no serverMessage
+    }
+    if (code === "csrf") {
+      // Should never happen from this SPA — uploadToServer always sends the
+      // header. Surface as "unknown" so the user sees a clear error, and log
+      // for diagnostics (misconfigured client or interception).
+      // eslint-disable-next-line no-console
+      console.error(
+        "[pdf2calendar] /api/upload returned 400 csrf — the X-PDF2Cal-Admin header was missing or wrong",
+      );
+      throw new UploadError({
+        kind: "unknown",
+        message: "CSRF header missing — please refresh and retry.",
+      });
     }
     throw new UploadError(
       serverMessage !== undefined

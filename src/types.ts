@@ -95,3 +95,70 @@ export type RawPage = {
   height: number;
   items: RawTextItem[];
 };
+
+// ─── V2 disk artifacts ────────────────────────────────────────────────────
+//
+// Schema version 2 is written by V2 uploads. Pre-V2 manifests are read-tolerant
+// (silently skipped from /api/manifest until the corresponding plan is
+// re-uploaded). See docs/v2-spec.md § Server changes.
+
+export type Plan = {
+  schema_version: 2;
+  pdf_sha256: string;
+  original_filename: string;
+  uploaded_at: string;
+  months: Array<{ year: number; month: number; days_covered: number[] }>;
+  person_hashes: string[];
+};
+
+export type ManifestEntry = {
+  pdf_sha256: string;
+  original_filename: string;
+  uploaded_at: string;
+  months: Array<{ year: number; month: number }>;
+};
+
+export type PersonManifest = {
+  schema_version: 2;
+  name: string;
+  role: string;
+  last_uploaded_at: string;
+  last_pdf_sha256: string;
+  last_date_range: { start: string; end: string };
+  entries: ManifestEntry[];
+};
+
+// ─── /api/manifest response shape ─────────────────────────────────────────
+//
+// Returned by GET /api/manifest. Shared between server (src/manifest-cache.ts)
+// and frontend (web/main.ts) so the frontend can type the fetch result
+// without importing node:fs-flavored modules.
+
+export type ManifestPlanInfo = {
+  pdf_sha256: string;
+  original_filename: string;
+  uploaded_at: string;
+  months: Array<{ year: number; month: number; days_covered: number[] }>;
+};
+
+export type ManifestStaffEntry = {
+  person_hash: string;
+  name: string;
+  role: string;
+  feed_url: string;
+  entries: Array<{
+    pdf_sha256: string;
+    original_filename: string;
+    uploaded_at: string;
+    months: Array<{ year: number; month: number }>;
+    row_url: string;
+  }>;
+};
+
+export type ManifestResponse = {
+  schema_version: 2;
+  department_slug: string;
+  latest_plan: ManifestPlanInfo | null;
+  plans: ManifestPlanInfo[];
+  staff: ManifestStaffEntry[];
+};

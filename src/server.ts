@@ -10,8 +10,16 @@ import type {
   UploadResponse,
   UploadResponseFeed,
 } from "../web/api.ts";
+import {
+  logAuthFailure,
+  requireAdminHeader,
+  sanitizeOriginalFilename,
+  verifyAdminPassword,
+} from "./admin-auth.ts";
 import { isKnownCode, codes as V1_CODES_TABLE } from "./codes.ts";
 import { mergeIcs, type GenerateInput } from "./ics.ts";
+import { ManifestCache } from "./manifest-cache.ts";
+import type { ManifestEntry, Plan, PersonManifest } from "./types.ts";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -23,6 +31,7 @@ export type Env = {
   baseUrl: string;
   departmentSlug: string;
   maxUploadBytes: number;
+  adminPassword: string;
 };
 
 export function readEnv(source: Record<string, string | undefined> = process.env): Env {
@@ -47,7 +56,17 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     die(`PDF2CAL_MAX_UPLOAD_BYTES invalid: ${source.PDF2CAL_MAX_UPLOAD_BYTES}`);
   }
 
-  return { port, dataDir: dataDir!, baseUrl: baseUrl!, departmentSlug: departmentSlug!, maxUploadBytes };
+  const adminPassword = source.PDF2CAL_ADMIN_PASSWORD;
+  if (!adminPassword) die("PDF2CAL_ADMIN_PASSWORD is required (empty string counts as unset)");
+
+  return {
+    port,
+    dataDir: dataDir!,
+    baseUrl: baseUrl!,
+    departmentSlug: departmentSlug!,
+    maxUploadBytes,
+    adminPassword: adminPassword!,
+  };
 }
 
 function die(msg: string): never {
@@ -63,13 +82,14 @@ function dirs(env: Env) {
     manifest: join(env.dataDir, "manifest"),
     sources: join(env.dataDir, "sources"),
     rows: join(env.dataDir, "rows"),
+    plans: join(env.dataDir, "plans"),
     unknownLog: join(env.dataDir, "unknown-codes.log"),
   };
 }
 
 export async function bootstrap(env: Env): Promise<void> {
   const d = dirs(env);
-  for (const p of [d.feeds, d.manifest, d.sources, d.rows]) {
+  for (const p of [d.feeds, d.manifest, d.sources, d.rows, d.plans]) {
     try {
       await mkdir(p, { recursive: true });
     } catch (e) {
@@ -81,7 +101,7 @@ export async function bootstrap(env: Env): Promise<void> {
 export async function orphanSweep(env: Env): Promise<number> {
   const d = dirs(env);
   let count = 0;
-  for (const root of [d.feeds, d.manifest]) {
+  for (const root of [d.feeds, d.manifest, d.plans]) {
     let entries: string[];
     try {
       entries = await readdir(root);
@@ -178,7 +198,7 @@ function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
 
 // ─── validation ───────────────────────────────────────────────────────────
 
-class BadRequest extends Error {
+export class BadRequest extends Error {
   constructor(public code: string, public detail: string) {
     super(detail);
     this.name = "BadRequest";
@@ -263,6 +283,13 @@ function validatePayload(json: unknown): UploadPayload {
     }
   }
 
+  // V2: admin_password + original_filename are required. Wrong-value rejection
+  // happens later (verifyAdminPassword → 401, sanitizeOriginalFilename → 400).
+  if (!isString(p.admin_password) || p.admin_password.length === 0)
+    throw new BadRequest("schema", "admin_password missing or empty");
+  if (!isString(p.original_filename) || p.original_filename.length === 0)
+    throw new BadRequest("schema", "original_filename missing or empty");
+
   return p as unknown as UploadPayload;
 }
 
@@ -275,13 +302,39 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+async function manifestResponse(cache: ManifestCache): Promise<Response> {
+  const body = await cache.get();
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      "x-robots-tag": "noindex, nofollow",
+      "cache-control": "no-store",
+    },
+  });
+}
+
 function errorResponse(status: number, error: string, code?: string): Response {
   const body: { error: string; code?: string } = { error };
   if (code) body.code = code;
   return jsonResponse(status, body);
 }
 
-async function handleUpload(req: Request, env: Env): Promise<Response> {
+async function handleUpload(
+  req: Request,
+  env: Env,
+  cache: ManifestCache,
+): Promise<Response> {
+  // Step 0 — CSRF defense. Browsers can't send X-PDF2Cal-Admin cross-origin
+  // without a CORS preflight; we don't allow that origin in CORS. Catches
+  // form-style CSRF before any other work.
+  try {
+    requireAdminHeader(req);
+  } catch (e) {
+    if (e instanceof BadRequest) return errorResponse(400, e.detail, e.code);
+    throw e;
+  }
+
   // Step 1 — parse multipart
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
   if (!contentType.startsWith("multipart/form-data")) {
@@ -332,6 +385,24 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
     if (e instanceof BadRequest) return errorResponse(400, e.detail, e.code);
     return errorResponse(400, `payload JSON parse failed: ${(e as Error).message}`, "schema");
   }
+
+  // Step 2b — password check BEFORE any hash work, so a wrong password
+  // never burns a SHA-256 over the PDF bytes. Logged to stderr (journald).
+  if (!verifyAdminPassword(payload.admin_password ?? "", env.adminPassword)) {
+    logAuthFailure(req);
+    return errorResponse(401, "invalid_admin_password");
+  }
+
+  // Step 2c — sanitize original_filename (control chars / path seps rejected,
+  // truncate to 200).
+  let sanitizedOriginalFilename: string;
+  try {
+    sanitizedOriginalFilename = sanitizeOriginalFilename(payload.original_filename ?? "");
+  } catch (e) {
+    if (e instanceof BadRequest) return errorResponse(400, e.detail, e.code);
+    throw e;
+  }
+  payload.original_filename = sanitizedOriginalFilename;
 
   // Step 3 — verify PDF bytes
   const pdfBytes = new Uint8Array(await pdfPart.arrayBuffer());
@@ -398,7 +469,16 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
     }
   }
 
-  // Steps 6–9 — write phase under the mutex
+  // V2: prefer payload.original_filename; fall back to source_file_name so
+  // V1 callers and pre-commit-5 tests keep working.
+  const originalFilename = payload.original_filename ?? payload.source_file_name;
+
+  // Steps 6–9 — write phase under the mutex.
+  //
+  // Order matters (docs/v2-spec.md § Decisions — write-mutex invariant): per-
+  // person feeds + manifest first, plan file second, cache.invalidate() LAST.
+  // A torn write at any step leaves disk consistent: no plan ever appears in
+  // /api/manifest without matching entries[] on the relevant persons.
   const uploadedAt = new Date();
   await withWriteLock(async () => {
     const d = dirs(env);
@@ -417,7 +497,15 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
       await atomicWrite(target, rowBytes);
     }
 
-    // Step 8 — per-person .ics + manifest
+    // Step 8 — per-person .ics + V2 manifest
+    const planMonths = payload.months.map((m) => ({ year: m.year, month: m.month }));
+    const newEntry: ManifestEntry = {
+      pdf_sha256: payload.pdf_sha256,
+      original_filename: originalFilename,
+      uploaded_at: uploadedAt.toISOString(),
+      months: planMonths,
+    };
+
     for (const person of payload.people) {
       const feedPath = join(d.feeds, `${person.person_hash}.ics`);
       let existing: string | null = null;
@@ -448,17 +536,38 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
         );
       }
 
-      // Manifest is best-effort — never converts to a 500. See spec § Step 8.4.
-      const manifest = {
+      // V2 manifest: schema_version + entries[] with replace-wholesale by
+      // pdf_sha256. Best-effort write — failure is logged, not 500'd
+      // (V1 invariant: manifest is metadata, not the source of truth).
+      const manifestPath = join(d.manifest, `${person.person_hash}.json`);
+      let priorEntries: ManifestEntry[] = [];
+      try {
+        const prevText = await readFile(manifestPath, "utf-8");
+        const prev = JSON.parse(prevText) as Partial<PersonManifest>;
+        if (Array.isArray(prev.entries)) {
+          priorEntries = prev.entries as ManifestEntry[];
+        }
+      } catch {
+        // file missing or unreadable — start fresh
+      }
+
+      const entries: ManifestEntry[] = [
+        ...priorEntries.filter((e) => e.pdf_sha256 !== payload.pdf_sha256),
+        newEntry,
+      ];
+
+      const manifest: PersonManifest = {
+        schema_version: 2,
         name: person.name,
         role: person.role,
         last_uploaded_at: uploadedAt.toISOString(),
         last_pdf_sha256: payload.pdf_sha256,
         last_date_range: payload.date_range,
+        entries,
       };
       try {
         await atomicWrite(
-          join(d.manifest, `${person.person_hash}.json`),
+          manifestPath,
           JSON.stringify(manifest, null, 2) + "\n",
         );
       } catch (e) {
@@ -475,6 +584,36 @@ async function handleUpload(req: Request, env: Env): Promise<Response> {
         console.error(`unknown-codes.log append failed: ${(e as Error).message}`);
       }
     }
+
+    // Plan file — written AFTER per-person manifest so a torn write can never
+    // leave a plan referencing persons whose entries[] don't include it.
+    // Idempotent: re-upload of the same sha overwrites atomically.
+    const planFile: Plan = {
+      schema_version: 2,
+      pdf_sha256: payload.pdf_sha256,
+      original_filename: originalFilename,
+      uploaded_at: uploadedAt.toISOString(),
+      months: payload.months.map((m) => ({
+        year: m.year,
+        month: m.month,
+        days_covered: m.days_covered,
+      })),
+      person_hashes: payload.people.map((p) => p.person_hash),
+    };
+    try {
+      await atomicWrite(
+        join(d.plans, `${payload.pdf_sha256}.json`),
+        JSON.stringify(planFile, null, 2) + "\n",
+      );
+    } catch (e) {
+      // Plan-file failures are best-effort like manifests — the feeds are the
+      // source of truth. Log loudly so it surfaces in journalctl.
+      console.error(`plan write failed for ${payload.pdf_sha256}: ${(e as Error).message}`);
+    }
+
+    // LAST: invalidate the read cache so the next /api/manifest sees this
+    // upload. Per docs/v2-spec.md § Decisions — write-mutex invariant.
+    cache.invalidate();
   });
 
   // Step 10 — response
@@ -504,6 +643,12 @@ class WriteFailure extends Error {
 export type ServerLike = { port: number; stop: (closeActiveConnections?: boolean) => void };
 
 export function createServer(env: Env): ServerLike {
+  const cache = new ManifestCache({
+    dataDir: env.dataDir,
+    baseUrl: env.baseUrl,
+    departmentSlug: env.departmentSlug,
+  });
+
   const handler = async (req: Request): Promise<Response> => {
     const start = Date.now();
     const url = new URL(req.url);
@@ -511,8 +656,10 @@ export function createServer(env: Env): ServerLike {
     try {
       if (req.method === "GET" && url.pathname === "/healthz") {
         res = jsonResponse(200, { ok: true });
+      } else if (req.method === "GET" && url.pathname === "/api/manifest") {
+        res = await manifestResponse(cache);
       } else if (req.method === "POST" && url.pathname === "/api/upload") {
-        res = await handleUpload(req, env);
+        res = await handleUpload(req, env, cache);
       } else {
         res = errorResponse(404, "not found");
       }
