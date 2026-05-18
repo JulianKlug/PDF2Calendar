@@ -361,19 +361,35 @@ handler — relying on browser-native behavior.
 3. User drops PDF → existing pipeline (`parsing` → `rendering_rows` →
    `hashing`), unchanged. The password is carried through each
    transition.
-4. After hashing, before POST: enter `confirm_overwrite`. Modal text:
-   - If `latest_plan` exists:
+4. After hashing, before POST: enter `confirm_overwrite`. Modal text is
+   chosen by scanning `manifestSnapshot.plans[]` (NOT just `latest_plan`)
+   for any plan that shares ≥1 calendar day with the incoming plan, via
+   `findOverlappingPlans` in `web/plan-overlap.ts`. This matters because
+   `mergeIcs` (`src/ics.ts`) drops events in the incoming date range from
+   every feed regardless of which prior plan wrote them — so an older
+   non-latest plan covering the same dates will get its events overwritten
+   too, and the modal must say so.
+   - If any plan in `plans[]` overlaps (use `overlapping[0]`, i.e. the
+     most-recently-uploaded overlapping plan, since `plans[]` is sorted
+     by `uploaded_at` desc):
      > You are about to replace **Plan_Mai_2026.pdf** (May 2026, uploaded
-     > 2026-05-12 14:03) with **Plan_Mai_2026_v2.pdf** (June 2026).
+     > 2026-05-12 14:03) with **Plan_Mai_2026_v2.pdf** (May 2026).
      > Existing events on overlapping dates will be overwritten.
+
+     When 2+ plans overlap, append `(N other plan(s) also cover
+     overlapping dates)` to the second sentence.
+   - If `latest_plan` exists but no plan overlaps:
+     > You are about to add **Plan_Juin_2026.pdf** (June 2026). The
+     > existing plan **Plan_Mai_2026.pdf** (May 2026, uploaded
+     > 2026-05-12 14:03) covers different dates and will be kept.
    - If no previous plan:
      > You are about to upload **Plan_Mai_2026.pdf** (May 2026) as the
      > first plan.
    - Buttons: **Cancel** (returns to `landing`, clears the password) /
      **Confirm and upload**.
    - Months come from `parsed.months[]` (incoming) and
-     `landing.latest_plan.months[]` (previous, fetched at landing time;
-     stale-by-construction — see invariant note below).
+     `landing.manifestSnapshot.plans[]` (previous, fetched at landing
+     time; stale-by-construction — see invariant note below).
 5. On confirm → POST `/api/upload` multipart with `X-PDF2Cal-Admin: 1`
    header, JSON part now including `admin_password` and `original_filename`.
 6. On `401 invalid_admin_password` → `error[InvalidAdminPassword]` with
@@ -385,10 +401,10 @@ handler — relying on browser-native behavior.
 > **Confirm-modal staleness invariant.** The modal text reflects the
 > manifest fetched at landing-load time. Between landing render and
 > Confirm click, another admin (or another tab) can upload, changing
-> `latest_plan`. The displayed previous-PDF info may be wrong; the
-> server upload still runs and overwrites the *current* latest plan.
-> This is last-writer-wins inside the mutex. Acceptable at hospital
-> scale with one admin.
+> `plans[]` (and therefore `latest_plan`). The displayed previous-PDF
+> info may be wrong; the server upload still runs and overwrites
+> whatever currently overlaps via `mergeIcs`. This is last-writer-wins
+> inside the mutex. Acceptable at hospital scale with one admin.
 
 ### API client (`web/api.ts` + new `web/admin-auth.ts`)
 

@@ -34,7 +34,7 @@ import {
 } from "./admin-auth.ts";
 import { pdfHash } from "./pdf-hash.ts";
 import { personHash } from "./person-hash.ts";
-import { plansShareAnyDate } from "./plan-overlap.ts";
+import { findOverlappingPlans } from "./plan-overlap.ts";
 import { renderRowImages, type RowJob } from "./row-image.ts";
 import {
   canDrop,
@@ -339,20 +339,28 @@ function renderConfirmOverwriteScreen(s: State & { stage: "confirm_overwrite" })
   const incomingMonths = formatMonths(s.parsed.months);
   const incomingName = s.file.name;
   const latest = manifestSnapshot?.latest_plan ?? null;
-  if (latest && plansShareAnyDate(s.parsed.months, latest.months)) {
+  // Scan ALL prior plans, not just latest_plan: mergeIcs (src/ics.ts) drops
+  // events in the incoming date range regardless of which prior plan wrote
+  // them, so any overlapping plan's events get overwritten. `plans` is sorted
+  // by uploaded_at desc, so overlapping[0] is the most-recent overlap.
+  const allPlans = manifestSnapshot?.plans ?? [];
+  const overlapping = findOverlappingPlans(s.parsed.months, allPlans);
+  if (overlapping.length > 0) {
+    const conflict = overlapping[0];
+    const others = overlapping.length - 1;
     body.appendChild(document.createTextNode("You are about to replace "));
-    body.appendChild(strong(latest.original_filename));
+    body.appendChild(strong(conflict.original_filename));
     body.appendChild(
       document.createTextNode(
-        ` (${formatMonths(latest.months)}, uploaded ${formatTimestamp(latest.uploaded_at)}) with `,
+        ` (${formatMonths(conflict.months)}, uploaded ${formatTimestamp(conflict.uploaded_at)}) with `,
       ),
     );
     body.appendChild(strong(incomingName));
-    body.appendChild(
-      document.createTextNode(
-        ` (${incomingMonths}). Existing events on overlapping dates will be overwritten.`,
-      ),
-    );
+    const tail =
+      others === 0
+        ? ` (${incomingMonths}). Existing events on overlapping dates will be overwritten.`
+        : ` (${incomingMonths}). Existing events on overlapping dates will be overwritten (${others} other plan${others === 1 ? "" : "s"} also cover overlapping dates).`;
+    body.appendChild(document.createTextNode(tail));
   } else if (latest) {
     body.appendChild(document.createTextNode("You are about to add "));
     body.appendChild(strong(incomingName));

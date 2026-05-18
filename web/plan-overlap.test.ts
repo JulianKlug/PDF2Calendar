@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { plansShareAnyDate } from "./plan-overlap.ts";
+import { findOverlappingPlans, plansShareAnyDate } from "./plan-overlap.ts";
 
 describe("plansShareAnyDate", () => {
   test("identical months and days → true", () => {
@@ -63,5 +63,68 @@ describe("plansShareAnyDate", () => {
     expect(plansShareAnyDate([], [])).toBe(false);
     expect(plansShareAnyDate([{ year: 2026, month: 1, days_covered: [1] }], [])).toBe(false);
     expect(plansShareAnyDate([], [{ year: 2026, month: 1, days_covered: [1] }])).toBe(false);
+  });
+});
+
+describe("findOverlappingPlans", () => {
+  // The motivating bug: May plan uploaded first, October plan uploaded second
+  // (so it becomes `latest_plan`), then May plan re-uploaded. The old May plan
+  // overlaps with the incoming and its events get overwritten by mergeIcs,
+  // but the warning previously only checked latest_plan (October) and falsely
+  // said "covers different dates and will be kept".
+  test("regression: re-uploading May finds the older non-latest May plan", () => {
+    const may = [{ year: 2026, month: 5, days_covered: [1, 2, 3] }];
+    const october = [{ year: 2026, month: 10, days_covered: [1, 2, 3] }];
+    // plans[] arrives sorted by uploaded_at desc, so October (latest) is first.
+    const plans = [
+      { original_filename: "6_octobre_13.04.2026.pdf", months: october },
+      { original_filename: "1_mai_11.05.2026.pdf", months: may },
+    ];
+    const overlapping = findOverlappingPlans(may, plans);
+    expect(overlapping).toHaveLength(1);
+    expect(overlapping[0]?.original_filename).toBe("1_mai_11.05.2026.pdf");
+  });
+
+  test("returns matches in input order (sorted desc → most-recent first)", () => {
+    const target = [{ year: 2026, month: 6, days_covered: [10, 11, 12] }];
+    const plans = [
+      {
+        original_filename: "june_v2.pdf",
+        months: [{ year: 2026, month: 6, days_covered: [12] }],
+      },
+      {
+        original_filename: "june_v1.pdf",
+        months: [{ year: 2026, month: 6, days_covered: [10, 11] }],
+      },
+      {
+        original_filename: "july.pdf",
+        months: [{ year: 2026, month: 7, days_covered: [1] }],
+      },
+    ];
+    const overlapping = findOverlappingPlans(target, plans);
+    expect(overlapping.map((p) => p.original_filename)).toEqual([
+      "june_v2.pdf",
+      "june_v1.pdf",
+    ]);
+  });
+
+  test("no overlap with any plan → empty array", () => {
+    const target = [{ year: 2026, month: 5, days_covered: [1, 2, 3] }];
+    const plans = [
+      {
+        original_filename: "october.pdf",
+        months: [{ year: 2026, month: 10, days_covered: [1, 2, 3] }],
+      },
+      {
+        original_filename: "november.pdf",
+        months: [{ year: 2026, month: 11, days_covered: [1, 2, 3] }],
+      },
+    ];
+    expect(findOverlappingPlans(target, plans)).toEqual([]);
+  });
+
+  test("empty plans array → empty result", () => {
+    const target = [{ year: 2026, month: 5, days_covered: [1] }];
+    expect(findOverlappingPlans(target, [])).toEqual([]);
   });
 });

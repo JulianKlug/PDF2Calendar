@@ -21,3 +21,24 @@ export function plansShareAnyDate(
   }
   return false;
 }
+
+// Returns the subset of `plans` whose date coverage overlaps `incoming`, in
+// the same order as the input. The confirm-overwrite modal feeds the server's
+// `manifestSnapshot.plans[]` here (already sorted by uploaded_at desc), so
+// the first hit is the most-recently-uploaded overlapping plan.
+//
+// Why this exists: checking only `latest_plan` misses overlaps with older
+// non-latest plans, and mergeIcs (src/ics.ts) drops events in the incoming
+// date range regardless of which prior plan wrote them. Re-uploading the May
+// plan after an October plan was the latest used to falsely show "covers
+// different dates and will be kept".
+export function findOverlappingPlans<
+  T extends {
+    months: Array<{ year: number; month: number; days_covered: number[] }>;
+  },
+>(
+  incoming: Array<{ year: number; month: number; days_covered: number[] }>,
+  plans: readonly T[],
+): T[] {
+  return plans.filter((p) => plansShareAnyDate(incoming, p.months));
+}
