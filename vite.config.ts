@@ -31,9 +31,10 @@ export default defineConfig({
   // same-origin /api/upload and Vite forwards it to the Bun server on :3001.
   // No CORS, no VITE_API_BASE_URL needed in dev. See docs/server-spec.md
   // § Deployment → nginx.
+  // Regex key: a plain "/api" prefix would also swallow the /api.ts module.
   server: {
     proxy: {
-      "/api": "http://localhost:3001",
+      "^/api/": "http://localhost:3001",
     },
   },
   plugins: [requireDepartmentSlug()],
