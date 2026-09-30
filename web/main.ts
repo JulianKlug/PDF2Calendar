@@ -490,6 +490,33 @@ function renderSuccess(
   } in this PDF`;
   screen.appendChild(heading);
 
+  // Next-upload actions sit on top so a batch of uploads needs no scrolling.
+  const cta = el("div", { class: "re-upload" });
+
+  // Same session, no re-login: straight back to the drop zone.
+  const anotherBtn = el("button", {
+    class: "btn btn-primary",
+    type: "button",
+  }) as HTMLButtonElement;
+  anotherBtn.textContent = "Upload another plan";
+  anotherBtn.addEventListener("click", () => {
+    state = toUploadStart(state);
+    render();
+  });
+  cta.appendChild(anotherBtn);
+
+  const btn = el("button", {
+    class: "btn re-upload-btn",
+    type: "button",
+  }) as HTMLButtonElement;
+  btn.textContent = "Back to staff list";
+  btn.addEventListener("click", () => {
+    state = toLanding(state);
+    render();
+  });
+  cta.appendChild(btn);
+  screen.appendChild(cta);
+
   const anomalies = parsed.warnings.filter(
     (w) => w.kind === "whitespace_in_code",
   );
@@ -527,32 +554,6 @@ function renderSuccess(
   for (const g of groups) {
     screen.appendChild(renderStaffListGroup(g));
   }
-
-  const cta = el("div", { class: "re-upload" });
-
-  // Same session, no re-login: straight back to the drop zone.
-  const anotherBtn = el("button", {
-    class: "btn btn-primary",
-    type: "button",
-  }) as HTMLButtonElement;
-  anotherBtn.textContent = "Upload another plan";
-  anotherBtn.addEventListener("click", () => {
-    state = toUploadStart(state);
-    render();
-  });
-  cta.appendChild(anotherBtn);
-
-  const btn = el("button", {
-    class: "btn re-upload-btn",
-    type: "button",
-  }) as HTMLButtonElement;
-  btn.textContent = "Back to staff list";
-  btn.addEventListener("click", () => {
-    state = toLanding(state);
-    render();
-  });
-  cta.appendChild(btn);
-  screen.appendChild(cta);
 
   // Auto-redirect rule (spec § State machine): suppress when the screen has
   // a banner the admin must read.
