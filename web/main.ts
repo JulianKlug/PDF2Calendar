@@ -35,6 +35,7 @@ import {
 import { pdfHash } from "./pdf-hash.ts";
 import { personHash } from "./person-hash.ts";
 import { findOverlappingPlans } from "./plan-overlap.ts";
+import { selectPreviewEntries } from "./preview-entries.ts";
 import { renderRowImages, type RowJob } from "./row-image.ts";
 import { renderSubscribeHelpButton } from "./subscribe-help.ts";
 import {
@@ -688,7 +689,7 @@ function groupStaffByRole(staff: ManifestStaffEntry[]): StaffListGroup[] {
     feed_url: s.feed_url,
     onPreview: (opener) => {
       openLightboxEntries(
-        s.entries.map((e) => ({
+        previewEntriesFor(s).map((e) => ({
           url: e.row_url,
           caption: `${monthName(e.months[0]?.month ?? 0)} ${e.months[0]?.year ?? ""} · ${e.original_filename}`,
         })),
@@ -698,6 +699,25 @@ function groupStaffByRole(staff: ManifestStaffEntry[]): StaffListGroup[] {
     },
   }));
   return groupItemsByRole(items);
+}
+
+// Current and upcoming months only, one upload per month. A person with
+// only past months falls back to their newest upload so the lightbox is
+// never empty.
+function previewEntriesFor(
+  s: ManifestStaffEntry,
+): ManifestStaffEntry["entries"] {
+  const today = new Date();
+  const selected = selectPreviewEntries(s.entries, {
+    year: today.getFullYear(),
+    month: today.getMonth() + 1,
+  });
+  if (selected.length > 0) return selected;
+
+  const newest = [...s.entries].sort((a, b) =>
+    b.uploaded_at.localeCompare(a.uploaded_at),
+  )[0];
+  return newest ? [newest] : [];
 }
 
 function renderStaffListGroup(group: StaffListGroup): HTMLElement {
