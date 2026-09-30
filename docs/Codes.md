@@ -8,8 +8,9 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 - Weekday (`C1`–`C6`): 07:15 – 17:30 (`Horaire court`)
 - Weekend / public holiday (`Cw1`–`Cw6`): 08:00 – 17:15
 - Single-digit suffix is the unit number (1–6).
-- Two-digit suffix is a unit range (`X` to `Y`): `C34` covers units 3–4;
-  `Cw46` covers units 4–6; `Cw56` covers units 5–6. Hours are unchanged.
+- Two-digit suffix is a unit range (`X` to `Y`): `C13` covers units 1–3;
+  `C34` covers units 3–4; `Cw13` covers units 1–3; `Cw46` covers units
+  4–6; `Cw56` covers units 5–6. Hours are unchanged.
 
 ## Family — long day shift (`L` / `Lw`)
 

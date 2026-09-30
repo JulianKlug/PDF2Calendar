@@ -126,6 +126,18 @@ describe("generate(): per-event shapes", () => {
     expect(evs[0]).toContain("DTSTART;TZID=Europe/Zurich:20260415T071500");
   });
 
+  // codes.ts treats "#" as a tentative prefix; ics.ts must agree or the
+  // code is "known" upstream yet rendered as "Unknown: #L5".
+  test("tentative prefix (#L5) → L5 event with STATUS:TENTATIVE", () => {
+    const ics = generate(
+      makeInput({ person: makePerson([{ date: "2026-04-15", codes: ["#L5"] }]) }),
+    );
+    const evs = vevents(ics);
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toContain("SUMMARY:Long shift\\, unit 5");
+    expect(evs[0]).toContain("STATUS:TENTATIVE");
+  });
+
   test("multi-code cell → distinct UIDs by seq", () => {
     const ics = generate(
       makeInput({

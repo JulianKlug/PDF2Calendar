@@ -54,8 +54,8 @@ export const codes: Record<string, Code> = {
   Cw1: dayShift("1", true),  Cw2: dayShift("2", true),  Cw3: dayShift("3", true),
   Cw4: dayShift("4", true),  Cw5: dayShift("5", true),  Cw6: dayShift("6", true),
   // C/Cw ranged variants — two-digit suffix is the unit range.
-  C34: dayShift("3-4", false),
-  Cw46: dayShift("4-6", true), Cw56: dayShift("5-6", true),
+  C13: dayShift("1-3", false), C34: dayShift("3-4", false),
+  Cw13: dayShift("1-3", true), Cw46: dayShift("4-6", true), Cw56: dayShift("5-6", true),
 
   // L — long shift
   L1: longShift("1", false), L2: longShift("2", false), L3: longShift("3", false),

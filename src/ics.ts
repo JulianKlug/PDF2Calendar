@@ -10,7 +10,7 @@ export type GenerateInput = {
   person: { days: ParsedDay[] };
   person_hash: string;
   codes: Record<string, Code>;
-  // Default true. When true, codes prefixed with `°` or `*` strip the prefix
+  // Default true. When true, codes prefixed with `°`, `*` or `#` strip the prefix
   // for lookup and emit STATUS:TENTATIVE.
   emit_tentative_for_prefixes?: boolean;
   source: {
@@ -38,7 +38,8 @@ export class IcsError extends Error {
 const HEX_16 = /^[0-9a-f]{16}$/;
 const HEX_64 = /^[0-9a-f]{64}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
-const TENTATIVE_PREFIX = /^[°*]/;
+// Must match TENTATIVE_PREFIX in codes.ts.
+const TENTATIVE_PREFIX = /^[°*#]/;
 
 const VTIMEZONE_BLOCK = [
   "BEGIN:VTIMEZONE",

@@ -291,7 +291,7 @@ describe("isKnownCode(): codes dictionary", () => {
   });
 
   test("non-codes are unknown", () => {
-    for (const c of ["Cw13", "Lw14", "ZZZ", "", "FooBar"]) {
+    for (const c of ["Cw14", "Lw14", "ZZZ", "", "FooBar"]) {
       expect(isKnownCode(c)).toBe(false);
     }
   });
