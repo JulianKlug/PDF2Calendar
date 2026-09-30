@@ -276,6 +276,7 @@ describe("isKnownCode(): codes dictionary", () => {
     for (const c of [
       "N13", "Cw3", "L6", "T", "T2", "T5", "LT", "X", "V", "V1", "CP", "MAL",
       "C34", "Cw46", "Lw13", "Lw46", "°C2",
+      "T13", "T45", "TDS", "FI2", "FD",
     ]) {
       expect(isKnownCode(c)).toBe(true);
     }

@@ -6,15 +6,15 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 ## Family — short day shift (`C` / `Cw`)
 
 - Weekday (`C1`–`C6`): 07:15 – 17:30 (`Horaire court`)
-- Weekend / public holiday (`Cw1`–`Cw6`): 08:00 – 17:30
+- Weekend / public holiday (`Cw1`–`Cw6`): 08:00 – 17:15
 - Single-digit suffix is the unit number (1–6).
 - Two-digit suffix is a unit range (`X` to `Y`): `C34` covers units 3–4;
   `Cw46` covers units 4–6; `Cw56` covers units 5–6. Hours are unchanged.
 
 ## Family — long day shift (`L` / `Lw`)
 
-- Weekday (`L1`–`L6`): 07:15 – 20:30 (`Horaire long`)
-- Weekend / public holiday (`Lw1`–`Lw6`): 08:00 – 20:30
+- Weekday (`L1`–`L6`): 07:15 – 20:45 (`Horaire long`)
+- Weekend / public holiday (`Lw1`–`Lw6`): 08:00 – 20:45
 - Single-digit suffix is the unit number (1–6).
 - Two-digit suffix is a unit range (`X` to `Y`): `L34` covers units 3–4;
   `Lw12` covers 1–2, `Lw13` covers 1–3, `Lw45` covers 4–5, `Lw46` covers
@@ -28,9 +28,14 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 
 ## Other timed shifts
 
-- `T` (also written as T1 in conversation): 09:00 – 19:00
-- `T2`: 07:15 – 17:30
+TIR shifts. Event title is `TIR (<code>)`, e.g. `TIR (T1)`.
+
+- `T` (also written as T1 in conversation; CDC): 09:00 – 19:00
+- `T2` (CDC): 07:15 – 17:15
 - `T5`: 07:30 – 17:30
+- `T13` (MA): 07:15 – 17:15
+- `T45` (MA): 09:00 – 19:00
+- `TDS` (MA): 10:00 – 20:00
 - `LT` — Long T shift: 09:00 – 21:00
 - `P` — Piquet (on-call): 08:00 today → 08:00 next day (24 h)
 - `E` — Journée échocardiographie: 09:00 – 17:30
@@ -44,8 +49,10 @@ Source of truth for `src/codes.ts`. When you edit this file, update
 - `V2` — Vacation (variant; same as `V`)
 - `SC` — Soins Continus DC
 - `FI` — Formation interne
+- `FI2` — Formation interne (variant, may be a half day; same as `FI`)
 - `FE` — Formation externe
-- `FE2` — Formation externe (variant; same as `FE`)
+- `FE2` — Formation externe (variant, may be a half day; same as `FE`)
+- `FD` — Formation donnée
 - `CHV` — TODO: clarify full meaning
 - `CAR` — TODO: clarify full meaning
 

@@ -30,14 +30,14 @@ const dayShift = (unit: string, weekend: boolean): Code => ({
   kind: "timed",
   title: `Day shift, ${unitLabel(unit)} ${unit}${weekend ? " (weekend)" : ""}`,
   start: weekend ? "08:00" : "07:15",
-  end: "17:30",
+  end: weekend ? "17:15" : "17:30",
 });
 
 const longShift = (unit: string, weekend: boolean): Code => ({
   kind: "timed",
   title: `Long shift, ${unitLabel(unit)} ${unit}${weekend ? " (weekend)" : ""}`,
   start: weekend ? "08:00" : "07:15",
-  end: "20:30",
+  end: "20:45",
 });
 
 const nightShift = (units: string, weekend: boolean): Code => ({
@@ -73,10 +73,13 @@ export const codes: Record<string, Code> = {
   Nw13: nightShift("1-3", true),
   Nw46: nightShift("4-6", true),
 
-  // T — duty / on-call. T is shorthand for T1; T2 has different hours.
-  T:  { kind: "timed", title: "T1 shift", start: "09:00", end: "19:00" },
-  T2: { kind: "timed", title: "T2 shift", start: "07:15", end: "17:30" },
-  T5: { kind: "timed", title: "T5 shift", start: "07:30", end: "17:30" },
+  // T — TIR duty. T is shorthand for T1.
+  T:   { kind: "timed", title: "TIR (T1)", start: "09:00", end: "19:00" },
+  T2:  { kind: "timed", title: "TIR (T2)", start: "07:15", end: "17:15" },
+  T5:  { kind: "timed", title: "TIR (T5)", start: "07:30", end: "17:30" },
+  T13: { kind: "timed", title: "TIR (T13)", start: "07:15", end: "17:15" },
+  T45: { kind: "timed", title: "TIR (T45)", start: "09:00", end: "19:00" },
+  TDS: { kind: "timed", title: "TIR (TDS)", start: "10:00", end: "20:00" },
 
   // LT — long T shift
   LT: { kind: "timed", title: "LT shift", start: "09:00", end: "21:00" },
@@ -99,8 +102,10 @@ export const codes: Record<string, Code> = {
   V2: { kind: "allday", title: "Vacation" },
   SC: { kind: "allday", title: "Soins Continus DC" },
   FI: { kind: "allday", title: "Formation interne" },
+  FI2: { kind: "allday", title: "Formation interne" },
   FE: { kind: "allday", title: "Formation externe" },
   FE2: { kind: "allday", title: "Formation externe" },
+  FD: { kind: "allday", title: "Formation donnée" },
   CHV: { kind: "allday", title: "CHV" },
   CAR: { kind: "allday", title: "CAR" },
 

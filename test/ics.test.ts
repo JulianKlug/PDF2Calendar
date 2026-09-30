@@ -405,8 +405,8 @@ describe("mergeIcs(): multi-month preservation", () => {
     const merged = mergeIcs(old, fresh, { start: "2026-04-01", end: "2026-04-30" });
     const evs = vevents(merged);
     expect(evs).toHaveLength(1);
-    // L3 ends at 20:30 (long shift), C2 ends at 17:30 (day shift).
-    expect(evs[0]).toContain("DTEND;TZID=Europe/Zurich:20260415T203000");
+    // L3 ends at 20:45 (long shift), C2 ends at 17:30 (day shift).
+    expect(evs[0]).toContain("DTEND;TZID=Europe/Zurich:20260415T204500");
     expect(evs[0]).toContain("SUMMARY:Long shift\\, unit 3");
   });
 
