@@ -36,6 +36,7 @@ import { pdfHash } from "./pdf-hash.ts";
 import { personHash } from "./person-hash.ts";
 import { findOverlappingPlans } from "./plan-overlap.ts";
 import { renderRowImages, type RowJob } from "./row-image.ts";
+import { renderSubscribeHelpButton } from "./subscribe-help.ts";
 import {
   canDrop,
   initialState,
@@ -1294,4 +1295,6 @@ function formatTimestamp(iso: string): string {
 // ─── Boot ────────────────────────────────────────────────────────────────
 
 setupDragDrop();
+// Outside #root so render() never clears it.
+document.body.appendChild(renderSubscribeHelpButton());
 render();

@@ -492,6 +492,70 @@
         margin-top: var(--space-3);
       }
 
+      /* ── Subscribe help (floating info button + modal) ─────────────────── */
+      :root {
+        --fab-size: 44px;
+        --fab-offset: var(--space-4);
+        /* Room below content so the fixed button never hides the last row. */
+        --fab-clearance: calc(var(--fab-size) + 2 * var(--fab-offset));
+      }
+
+      /* #root: outrank the later .landing-screen padding shorthand. */
+      #root .landing-screen,
+      #root .success {
+        padding-bottom: var(--fab-clearance);
+      }
+
+      .info-fab {
+        position: fixed;
+        right: var(--fab-offset);
+        bottom: var(--fab-offset);
+        z-index: 800; /* below modals (900) and lightbox (1000) */
+        width: var(--fab-size);
+        height: var(--fab-size);
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--accent);
+        font-family: Georgia, serif;
+        font-size: var(--text-lg);
+        font-style: italic;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      }
+
+      .info-fab:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+
+      .help-card {
+        max-width: 560px;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+
+      .help-section {
+        font-size: var(--text-sm);
+        margin-bottom: var(--space-4);
+      }
+
+      .help-section h3 {
+        font-size: var(--text-base);
+        font-weight: 500;
+        margin: 0 0 var(--space-1) 0;
+      }
+
+      .help-section p {
+        margin: 0 0 var(--space-1) 0;
+      }
+
+      .help-section ol {
+        margin: 0;
+        padding-left: var(--space-6);
+      }
+
       /* ── Landing page ──────────────────────────────────────────────────── */
       .landing-screen {
         max-width: 800px;
