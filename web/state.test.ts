@@ -16,7 +16,9 @@ import {
   toLanding,
   toParsing,
   toRenderingRows,
+  toLogout,
   toSuccess,
+  toUploadStart,
   toUploading,
   validateFile,
   type State,
@@ -107,6 +109,7 @@ describe("canDrop", () => {
     expect(
       canDrop({
         stage: "success",
+        admin_password: PW,
         result: fakeResponse,
         rows: fakeRows,
         parsed: fakeParsed,
@@ -192,7 +195,7 @@ describe("toLanding (Cancel / auto-redirect / reset)", () => {
     expect(toLanding({ stage: "auth_prompt" })).toEqual({ stage: "landing" });
   });
 
-  test("confirm_overwrite → landing (Cancel) clears password", () => {
+  test("confirm_overwrite → landing (Cancel) keeps session password", () => {
     const co: State = {
       stage: "confirm_overwrite",
       admin_password: PW,
@@ -201,22 +204,106 @@ describe("toLanding (Cancel / auto-redirect / reset)", () => {
       rows: fakeRows,
       pdf_sha256: "a".repeat(64),
     };
-    expect(toLanding(co)).toEqual({ stage: "landing" });
+    expect(toLanding(co)).toEqual({ stage: "landing", admin_password: PW });
   });
 
-  test("success → landing (auto-redirect)", () => {
+  test("success → landing (auto-redirect) keeps session password", () => {
     const success: State = {
       stage: "success",
+      admin_password: PW,
       result: fakeResponse,
       rows: fakeRows,
       parsed: fakeParsed,
       fileName: "shift.pdf",
     };
-    expect(toLanding(success)).toEqual({ stage: "landing" });
+    expect(toLanding(success)).toEqual({ stage: "landing", admin_password: PW });
+  });
+
+  test("error[invalid_admin_password] → landing has no password", () => {
+    const errored: State = {
+      stage: "error",
+      from_stage: "uploading",
+      cause: { kind: "invalid_admin_password" },
+    };
+    expect(toLanding(errored)).toEqual({ stage: "landing" });
   });
 
   test("reset alias matches toLanding", () => {
     expect(reset({ stage: "auth_prompt" })).toEqual({ stage: "landing" });
+  });
+});
+
+// ─── Multi-upload session ────────────────────────────────────────────────
+
+describe("toUploadStart", () => {
+  test("landing without password → auth_prompt", () => {
+    expect(toUploadStart(initialState)).toEqual({ stage: "auth_prompt" });
+  });
+
+  test("landing with password → idle_upload (no re-login)", () => {
+    expect(toUploadStart({ stage: "landing", admin_password: PW })).toEqual({
+      stage: "idle_upload",
+      admin_password: PW,
+    });
+  });
+
+  test("success → idle_upload (Upload another plan)", () => {
+    const success: State = {
+      stage: "success",
+      admin_password: PW,
+      result: fakeResponse,
+      rows: fakeRows,
+      parsed: fakeParsed,
+      fileName: "shift.pdf",
+    };
+    expect(toUploadStart(success)).toEqual({
+      stage: "idle_upload",
+      admin_password: PW,
+    });
+  });
+
+  test("no-op from busy stages", () => {
+    const busy: State = { stage: "parsing", admin_password: PW, file: fakeFile() };
+    expect(toUploadStart(busy)).toBe(busy);
+  });
+});
+
+describe("toLogout", () => {
+  test("logged-in landing → landing without password", () => {
+    expect(toLogout({ stage: "landing", admin_password: PW })).toEqual({
+      stage: "landing",
+    });
+  });
+
+  test("no-op outside landing", () => {
+    const idle = freshIdleUpload();
+    expect(toLogout(idle)).toBe(idle);
+  });
+});
+
+describe("second upload after success", () => {
+  test("success → idle_upload → … → success reuses the password", () => {
+    let s: State = {
+      stage: "success",
+      admin_password: PW,
+      result: fakeResponse,
+      rows: fakeRows,
+      parsed: fakeParsed,
+      fileName: "first.pdf",
+    };
+    s = toUploadStart(s);
+    s = toParsing(s, fakeFile("second.pdf"));
+    s = toRenderingRows(s, fakeParsed);
+    s = toHashing(s, fakeRows);
+    s = toConfirmOverwrite(s, "b".repeat(64));
+    s = toUploading(s);
+    if (s.stage !== "uploading") throw new Error("nope");
+    expect(s.admin_password).toBe(PW);
+
+    s = toSuccess(s, fakeResponse);
+    if (s.stage !== "success") throw new Error("nope");
+    expect(s.fileName).toBe("second.pdf");
+    expect(s.admin_password).toBe(PW);
   });
 });
 
@@ -264,8 +351,8 @@ describe("happy-path chain (V2)", () => {
     expect(s.result).toBe(fakeResponse);
     expect(s.rows).toBe(fakeRows);
     expect(s.fileName).toBe("shift.pdf");
-    // Password cleared at toSuccess.
-    expect((s as unknown as { admin_password?: unknown }).admin_password).toBeUndefined();
+    // Password kept for the next upload in this session.
+    expect(s.admin_password).toBe(PW);
   });
 
   test("each transition no-ops if called from the wrong prior stage", () => {
@@ -291,6 +378,7 @@ describe("toError", () => {
     if (s.stage !== "error") throw new Error("nope");
     expect(s.from_stage).toBe("rendering_rows");
     expect(s.cause).toEqual({ kind: "network" });
+    expect(s.admin_password).toBe(PW);
   });
 
   test("toError on uploading produces invalid_admin_password error", () => {
@@ -306,6 +394,8 @@ describe("toError", () => {
     expect(s.stage).toBe("error");
     if (s.stage !== "error") throw new Error("nope");
     expect(s.cause.kind).toBe("invalid_admin_password");
+    // Wrong password is dropped, never carried forward.
+    expect(s.admin_password).toBeUndefined();
   });
 
   test("no-op from landing / auth_prompt / idle_upload / confirm_overwrite / success / error", () => {
@@ -323,6 +413,7 @@ describe("toError", () => {
       },
       {
         stage: "success",
+        admin_password: PW,
         result: fakeResponse,
         rows: fakeRows,
         parsed: fakeParsed,

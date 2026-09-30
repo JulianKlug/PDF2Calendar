@@ -257,14 +257,18 @@ plan is re-uploaded — at which point the upload handler writes the new
 ### State machine (`web/state.ts`)
 
 Extend the discriminated union with new states. The admin password is
-carried explicitly inside the State variants from `auth_prompt` onward;
-it is cleared on every transition to `landing`, `success`, or the
-`error[InvalidAdminPassword]` branch — i.e. State is the single source
-of truth, matching the existing project invariant.
+carried explicitly inside the State variants from `auth_prompt` onward
+— i.e. State is the single source of truth, matching the existing
+project invariant. One login covers every upload in the page session:
+the password survives `landing`, `success`, and non-auth `error`
+states, and is dropped only on page reload, **Log out**, or the
+`error[InvalidAdminPassword]` branch.
 
 New states:
 
-- `landing` — shows the staff index. **New initial state** (was `idle`).
+- `landing { admin_password? }` — shows the staff index. **New initial
+  state** (was `idle`). With a password held, the header also shows
+  **Log out** (`toLogout`).
 - `auth_prompt` — modal asking for the admin password.
 - `idle_upload { admin_password }` — drop-zone state (today's `idle`,
   renamed; now carrying the password).
@@ -273,8 +277,8 @@ New states:
 
 Existing `parsing`, `rendering_rows`, `hashing`, `uploading`, `success`,
 `error` states are extended to carry `admin_password` where they need to
-survive into the POST. `success` does **not** carry the password (it's
-cleared at `toSuccess`).
+survive into the POST. `success` carries it so **Upload another plan**
+(`toUploadStart`) returns straight to `idle_upload`.
 
 Auto-transition rule: `success → landing` after ~2 s, **except** when
 the success screen has anything the admin must read:
@@ -351,7 +355,9 @@ handler — relying on browser-native behavior.
 
 ### Upload flow with password + confirmation
 
-1. **Upload new plan** click on landing → enter `auth_prompt`.
+1. **Upload new plan** click on landing → `toUploadStart`: enter
+   `auth_prompt`, or `idle_upload` directly if the session already
+   holds a password.
 2. Password modal: single password field + Submit/Cancel. On submit,
    transition to `idle_upload { admin_password }`. The password is *not*
    validated yet — we save the round-trip for the actual upload POST. A
@@ -385,7 +391,7 @@ handler — relying on browser-native behavior.
    - If no previous plan:
      > You are about to upload **Plan_Mai_2026.pdf** (May 2026) as the
      > first plan.
-   - Buttons: **Cancel** (returns to `landing`, clears the password) /
+   - Buttons: **Cancel** (returns to `landing`, keeps the password) /
      **Confirm and upload**.
    - Months come from `parsed.months[]` (incoming) and
      `landing.manifestSnapshot.plans[]` (previous, fetched at landing
@@ -603,7 +609,7 @@ condition: eddy data dir is empty (operator wipes / starts fresh).
 5. **Overwrite confirmation.** With an existing latest plan, drop a new
    PDF → confirm modal shows both filenames + month ranges +
    upload dates. **Cancel** → back to landing, no changes on disk,
-   password cleared. **Confirm** → upload succeeds; landing auto-
+   still logged in. **Confirm** → upload succeeds; landing auto-
    refreshes; the new plan is now `latest_plan`.
 6. **Unknown codes auto-redirect suppression.** Upload a PDF containing
    at least one code not in the codes table → success screen shows the

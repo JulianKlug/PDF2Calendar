@@ -351,6 +351,10 @@
         text-align: center;
       }
 
+      .re-upload .btn + .btn {
+        margin-left: var(--space-3);
+      }
+
       .re-upload-btn {
         color: var(--text-muted);
         text-decoration: underline;
@@ -503,6 +507,11 @@
         gap: var(--space-3);
         margin-bottom: var(--space-6);
         flex-wrap: wrap;
+      }
+
+      /* Logged in: title left, Upload + Log out grouped right. */
+      .landing-header.logged-in .landing-title {
+        margin-right: auto;
       }
 
       .landing-title {

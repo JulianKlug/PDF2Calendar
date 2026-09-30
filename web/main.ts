@@ -45,9 +45,11 @@ import {
   toHashing,
   toIdleUpload,
   toLanding,
+  toLogout,
   toParsing,
   toRenderingRows,
   toSuccess,
+  toUploadStart,
   toUploading,
   validateFile,
   type ErrorCause,
@@ -147,10 +149,25 @@ function renderLanding(): HTMLElement {
   }) as HTMLButtonElement;
   uploadBtn.textContent = "Upload new plan";
   uploadBtn.addEventListener("click", () => {
-    state = toAuthPrompt(state);
+    state = toUploadStart(state);
     render();
   });
   header.appendChild(uploadBtn);
+
+  // Logged-in session: offer to forget the password before leaving the device.
+  if (state.stage === "landing" && state.admin_password !== undefined) {
+    const logoutBtn = el("button", {
+      class: "btn btn-quiet",
+      type: "button",
+    }) as HTMLButtonElement;
+    logoutBtn.textContent = "Log out";
+    logoutBtn.addEventListener("click", () => {
+      state = toLogout(state);
+      render();
+    });
+    header.appendChild(logoutBtn);
+    header.classList.add("logged-in");
+  }
   screen.appendChild(header);
 
   const body = el("div", { class: "landing-body" });
@@ -198,7 +215,7 @@ function mountLandingBody(body: HTMLElement, data: ManifestResponse): void {
     }) as HTMLButtonElement;
     cta.textContent = "Upload first plan";
     cta.addEventListener("click", () => {
-      state = toAuthPrompt(state);
+      state = toUploadStart(state);
       render();
     });
     empty.appendChild(cta);
@@ -510,6 +527,19 @@ function renderSuccess(
   }
 
   const cta = el("div", { class: "re-upload" });
+
+  // Same session, no re-login: straight back to the drop zone.
+  const anotherBtn = el("button", {
+    class: "btn btn-primary",
+    type: "button",
+  }) as HTMLButtonElement;
+  anotherBtn.textContent = "Upload another plan";
+  anotherBtn.addEventListener("click", () => {
+    state = toUploadStart(state);
+    render();
+  });
+  cta.appendChild(anotherBtn);
+
   const btn = el("button", {
     class: "btn re-upload-btn",
     type: "button",
