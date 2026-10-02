@@ -74,6 +74,20 @@ describe("generate(): per-event shapes", () => {
     expect(evs[0]).toContain("DTSTAMP:20260415T103000Z");
   });
 
+  test("colleagues listed in DESCRIPTION of matching event only", () => {
+    const ics = generate(
+      makeInput({
+        person: makePerson([{ date: "2026-04-15", codes: ["C2", "FI"] }]),
+        colleagues: { "2026-04-15": [["Doe, J (ma, L2)"], []] },
+      }),
+    );
+    const evs = vevents(ics).map((e) => e.replace(/\r\n /g, ""));
+    const shift = evs.find((e) => e.includes("SUMMARY:Day shift"))!;
+    const training = evs.find((e) => e.includes("SUMMARY:Formation interne"))!;
+    expect(shift).toContain("DESCRIPTION:Working with: Doe\\, J (ma\\, L2)\\nSource:");
+    expect(training).not.toContain("Working with");
+  });
+
   test("night shift crosses midnight (Nw13 on 2026-04-18)", () => {
     const ics = generate(
       makeInput({ person: makePerson([{ date: "2026-04-18", codes: ["Nw13"] }]) }),

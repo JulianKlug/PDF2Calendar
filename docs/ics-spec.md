@@ -183,6 +183,15 @@ Uploaded: {YYYY-MM-DD HH:MM} UTC
 View your row: {base_url}/source/{pdf_sha256}/{person_hash}.png
 ```
 
+When `colleagues[date][seq]` is non-empty (see `src/colleagues.ts`), a
+first line is prepended:
+
+```
+Working with: {name} ({role}, {code}); …
+```
+
+Colleagues share date, period (day C/L vs night N) and at least one unit.
+
 Three lines. Newlines are encoded as `\n` per RFC 5545 (literal backslash +
 n, not a real newline byte) — a real LF would terminate the property.
 

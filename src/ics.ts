@@ -2,6 +2,7 @@
 // Spec: docs/ics-spec.md.
 
 import type { Code } from "./codes.ts";
+import type { ColleagueMap } from "./colleagues.ts";
 import type { ParsedDay } from "./types.ts";
 
 export type { Code } from "./codes.ts";
@@ -20,6 +21,8 @@ export type GenerateInput = {
     base_url: string;
   };
   tombstones?: Array<{ date: string; seq: number }>;
+  // Same-unit coworkers, prepended to the matching event's DESCRIPTION.
+  colleagues?: ColleagueMap;
 };
 
 export type IcsErrorCode =
@@ -66,6 +69,7 @@ type InternalEvent = {
   uid: string;
   status: "CONFIRMED" | "TENTATIVE" | "CANCELLED";
   summary: string;
+  description: string;
   sort_key: string;
   dtstart_line: string;
   dtend_line: string;
@@ -169,7 +173,7 @@ function fold(line: string): string {
 }
 
 export function generate(input: GenerateInput): string {
-  const { person, person_hash, codes, source, tombstones = [] } = input;
+  const { person, person_hash, codes, source, tombstones = [], colleagues = {} } = input;
   const emitTentative = input.emit_tentative_for_prefixes !== false;
 
   if (!HEX_16.test(person_hash)) {
@@ -225,12 +229,20 @@ export function generate(input: GenerateInput): string {
       const status = tentative ? "TENTATIVE" : "CONFIRMED";
       const summary = escapeText(code.title);
 
+      // e.g. "Working with: Doe, J (ma, C1); Roe, A (cdc, L1)\nSource: …"
+      const coworkers = colleagues[day.date]?.[seq] ?? [];
+      const description =
+        coworkers.length === 0
+          ? descriptionEscaped
+          : escapeText(`Working with: ${coworkers.join("; ")}\n`) + descriptionEscaped;
+
       if (code.kind === "allday") {
         const endDate = nextDay(day.date);
         events.push({
           uid,
           status,
           summary,
+          description,
           sort_key: ymdCompact(day.date),
           dtstart_line: `DTSTART;VALUE=DATE:${ymdCompact(day.date)}`,
           dtend_line: `DTEND;VALUE=DATE:${ymdCompact(endDate)}`,
@@ -244,6 +256,7 @@ export function generate(input: GenerateInput): string {
           uid,
           status,
           summary,
+          description,
           sort_key: startCompact,
           dtstart_line: `DTSTART;TZID=Europe/Zurich:${startCompact}`,
           dtend_line: `DTEND;TZID=Europe/Zurich:${endCompact}`,
@@ -260,6 +273,7 @@ export function generate(input: GenerateInput): string {
       uid,
       status: "CANCELLED",
       summary: "(cancelled)",
+      description: descriptionEscaped,
       sort_key: ymdCompact(t.date),
       dtstart_line: `DTSTART;VALUE=DATE:${ymdCompact(t.date)}`,
       dtend_line: `DTEND;VALUE=DATE:${ymdCompact(endDate)}`,
@@ -291,7 +305,7 @@ export function generate(input: GenerateInput): string {
       ev.dtstart_line,
       ev.dtend_line,
       `SUMMARY:${ev.summary}`,
-      `DESCRIPTION:${descriptionEscaped}`,
+      `DESCRIPTION:${ev.description}`,
       `STATUS:${ev.status}`,
       "TRANSP:OPAQUE",
       "END:VEVENT",

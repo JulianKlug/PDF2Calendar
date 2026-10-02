@@ -18,6 +18,7 @@ import {
 } from "./admin-auth.ts";
 import { isKnownCode, codes as V1_CODES_TABLE } from "./codes.ts";
 import { mergeIcs, type GenerateInput } from "./ics.ts";
+import { findColleagues } from "./colleagues.ts";
 import { ManifestCache } from "./manifest-cache.ts";
 import type { ManifestEntry, Plan, PersonManifest } from "./types.ts";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
@@ -506,7 +507,8 @@ async function handleUpload(
       months: planMonths,
     };
 
-    for (const person of payload.people) {
+    const colleagues = findColleagues(payload.people);
+    for (const [personIdx, person] of payload.people.entries()) {
       const feedPath = join(d.feeds, `${person.person_hash}.ics`);
       let existing: string | null = null;
       try {
@@ -525,6 +527,7 @@ async function handleUpload(
           pdf_sha256: payload.pdf_sha256,
           base_url: env.baseUrl,
         },
+        colleagues: colleagues[personIdx],
       };
 
       const merged = mergeIcs(existing, freshInput, payload.date_range);
