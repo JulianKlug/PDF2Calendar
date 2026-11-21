@@ -113,6 +113,19 @@ export function validateFile(file: File): ValidateFileResult {
   return { ok: true };
 }
 
+// Batch pre-flight: first failing file rejects the whole batch, so the admin
+// never ends up with half a batch uploaded. Message names the culprit, e.g.
+// "notes.txt: Please drop a PDF file."
+export function validateFiles(files: File[]): ValidateFileResult {
+  for (const file of files) {
+    const v = validateFile(file);
+    if (v.ok) continue;
+    if (files.length === 1) return v;
+    return { ...v, message: `${file.name}: ${v.message}` };
+  }
+  return { ok: true };
+}
+
 // ─── Transitions ──────────────────────────────────────────────────────────
 
 // landing → auth_prompt (Upload click on landing).

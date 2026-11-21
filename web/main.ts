@@ -62,7 +62,7 @@ import {
   toSuccess,
   toUploadStart,
   toUploading,
-  validateFile,
+  validateFiles,
   type ErrorCause,
   type State,
 } from "./state.ts";
@@ -89,6 +89,11 @@ let labelTimer: ReturnType<typeof setTimeout> | null = null;
 let successRedirectTimer: ReturnType<typeof setTimeout> | null = null;
 let dragCounter = 0;
 
+// Files still waiting after a multi-file drop. Each runs the full single-file
+// pipeline (confirm modal included); the success screen offers the next one.
+// Dropped on landing/error so an aborted batch never resumes by surprise.
+let pendingFiles: File[] = [];
+
 // Manifest snapshot captured by the most recent successful /api/manifest
 // fetch. Read by renderConfirmOverwrite to compose the "replacing X with Y"
 // modal text (spec § Frontend / Upload flow step 4).
@@ -111,6 +116,7 @@ function render(): void {
     successRedirectTimer = null;
   }
   if (openLightboxState) closeLightbox();
+  if (state.stage === "landing" || state.stage === "error") pendingFiles = [];
 
   // Clear without removing the #root element itself.
   while (root.firstChild) root.removeChild(root.firstChild);
@@ -286,8 +292,8 @@ function renderIdleUpload(): HTMLElement {
 
   const main = el("div", { class: "drop-zone-main" });
   main.textContent = isMobile()
-    ? "Choose your shift PDF"
-    : "Drop your shift PDF here";
+    ? "Choose your shift PDFs"
+    : "Drop your shift PDFs here";
   label.appendChild(main);
 
   if (!isMobile()) {
@@ -302,12 +308,12 @@ function renderIdleUpload(): HTMLElement {
     type: "file",
     accept: "application/pdf,.pdf",
     class: "sr-only",
-    "aria-label": "Upload a shift PDF",
+    "aria-label": "Upload shift PDFs",
+    multiple: "",
   }) as HTMLInputElement;
   input.addEventListener("change", () => {
     inlineError = null;
-    const file = input.files?.[0];
-    if (file) handleFileSelected(file);
+    handleFilesSelected(Array.from(input.files ?? []));
   });
   label.appendChild(input);
 
@@ -502,6 +508,22 @@ function renderSuccess(
   // Next-upload actions sit on top so a batch of uploads needs no scrolling.
   const cta = el("div", { class: "re-upload" });
 
+  // Batch in progress: next file replaces "Upload another plan".
+  const next = pendingFiles[0];
+  if (next) {
+    const nextBtn = el("button", {
+      class: "btn btn-primary",
+      type: "button",
+    }) as HTMLButtonElement;
+    nextBtn.textContent = `Next file: ${next.name} (${pendingFiles.length} left)`;
+    nextBtn.addEventListener("click", () => {
+      pendingFiles.shift();
+      state = toUploadStart(state);
+      void runPipeline(next);
+    });
+    cta.appendChild(nextBtn);
+  }
+
   // Same session, no re-login: straight back to the drop zone.
   const anotherBtn = el("button", {
     class: "btn btn-primary",
@@ -512,7 +534,7 @@ function renderSuccess(
     state = toUploadStart(state);
     render();
   });
-  cta.appendChild(anotherBtn);
+  if (!next) cta.appendChild(anotherBtn);
 
   const btn = el("button", {
     class: "btn re-upload-btn",
@@ -571,10 +593,18 @@ function renderSuccess(
     if (successRedirectTimer) clearTimeout(successRedirectTimer);
     successRedirectTimer = setTimeout(() => {
       successRedirectTimer = null;
-      if (state.stage === "success") {
-        state = toLanding(state);
-        render();
+      if (state.stage !== "success") return;
+
+      // Clean upload mid-batch: move on to the next file, not landing.
+      const queued = pendingFiles.shift();
+      if (queued) {
+        state = toUploadStart(state);
+        void runPipeline(queued);
+        return;
       }
+
+      state = toLanding(state);
+      render();
     }, 2000);
   }
 
@@ -1293,16 +1323,22 @@ function closeLightbox(): void {
 
 // ─── Pipeline orchestration ──────────────────────────────────────────────
 
-async function handleFileSelected(file: File): Promise<void> {
+// Validate the whole batch up front, run the first, queue the rest.
+async function handleFilesSelected(files: File[]): Promise<void> {
   if (!canDrop(state)) return;
-  const v = validateFile(file);
+  const [first, ...rest] = files;
+  if (!first) return;
+
+  const v = validateFiles(files);
   if (!v.ok) {
     inlineError = v.message;
     render();
     return;
   }
+
   inlineError = null;
-  await runPipeline(file);
+  pendingFiles = rest;
+  await runPipeline(first);
 }
 
 async function runPipeline(file: File): Promise<void> {
@@ -1493,9 +1529,7 @@ function setupDragDrop(): void {
     document.querySelector(".drop-zone")?.classList.remove("dragover");
     if (!canDrop(state)) return;
     inlineError = null;
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    handleFileSelected(file);
+    handleFilesSelected(Array.from(e.dataTransfer?.files ?? []));
   });
 }
 

@@ -38,12 +38,16 @@ ships parsed JSON; the server resolves codes and writes `.ics`.
 
 ### User input
 
-One PDF file via drag-drop onto the page, or via a hidden
-`<input type=file accept="application/pdf,.pdf">` clicked by the drop
-zone. The `accept` attribute filters the native picker to PDFs (cosmetic
-on most platforms; some honor it strictly). Multi-file drop, folder drop,
-and any non-PDF MIME are still rejected before the pipeline starts (see
-§ Pre-flight checks) — `accept` is hint, not enforcement.
+One or more PDF files via drag-drop onto the page, or via a hidden
+`<input type=file multiple accept="application/pdf,.pdf">` clicked by the
+drop zone. The `accept` attribute filters the native picker to PDFs
+(cosmetic on most platforms; some honor it strictly). Folder drop and any
+non-PDF MIME are still rejected before the pipeline starts (see
+§ Pre-flight checks) — `accept` is hint, not enforcement. One invalid file
+rejects the whole batch. Files are processed one at a time through the
+full pipeline (confirm modal per file); after a clean upload the next file
+starts automatically, otherwise the success screen shows "Next file".
+Returning to landing or hitting an error drops the rest of the batch.
 
 ### Build-time environment
 

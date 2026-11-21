@@ -21,6 +21,7 @@ import {
   toUploadStart,
   toUploading,
   validateFile,
+  validateFiles,
   type State,
 } from "./state.ts";
 import type { ParseResult } from "../src/types.ts";
@@ -145,6 +146,33 @@ describe("validateFile", () => {
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("too_large");
+  });
+});
+
+// ─── validateFiles ───────────────────────────────────────────────────────
+
+describe("validateFiles", () => {
+  test("accepts several PDFs", () => {
+    const r = validateFiles([fakeFile("a.pdf"), fakeFile("b.pdf")]);
+    expect(r.ok).toBe(true);
+  });
+
+  test("rejects batch and names the offending file", () => {
+    const r = validateFiles([
+      fakeFile("a.pdf"),
+      fakeFile("notes.txt", 100, "text/plain"),
+    ]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("wrong_type");
+      expect(r.message).toBe("notes.txt: Please drop a PDF file.");
+    }
+  });
+
+  test("single file keeps the plain message", () => {
+    const r = validateFiles([fakeFile("notes.txt", 100, "text/plain")]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toBe("Please drop a PDF file.");
   });
 });
 
