@@ -85,6 +85,7 @@ type PayloadSpec = {
   admin_password?: string;
   date_range?: { start: string; end: string };
   months?: Array<{ year: number; month: number; days_covered: number[] }>;
+  day_columns?: unknown;
   people: Person[];
 };
 
@@ -118,6 +119,7 @@ async function buildPayload(spec: PayloadSpec): Promise<{
     original_filename:
       spec.original_filename ?? spec.source_file_name ?? "shifts.pdf",
   };
+  if (spec.day_columns !== undefined) payload.day_columns = spec.day_columns;
   return { payload, hashes };
 }
 
@@ -220,6 +222,47 @@ describe("happy path", () => {
       join(env.dataDir, "rows", pdfSha, `${hash}.png`),
     );
     expect(rowPng.length).toBeGreaterThan(0);
+  });
+});
+
+describe("day snapshot", () => {
+  const DAYS = [{ date: "2026-05-15", codes: ["C2"] }];
+  const COLUMNS = [{ date: "2026-05-15", x0: 0.5, x1: 0.52 }];
+
+  test("writes rows/<sha>/<hash>.json with days + columns", async () => {
+    const { res, hashes, pdfSha } = await postHappy({
+      day_columns: COLUMNS,
+      people: [{ role: "ma", name: "Klug, J", days: DAYS }],
+    });
+    expect(res.status).toBe(200);
+
+    const hash = Array.from(hashes.keys())[0]!;
+    const snapshot = JSON.parse(
+      await readFile(join(env.dataDir, "rows", pdfSha, `${hash}.json`), "utf-8"),
+    );
+    expect(snapshot).toEqual({ schema_version: 1, days: DAYS, columns: COLUMNS });
+  });
+
+  test("missing day_columns → snapshot with empty columns", async () => {
+    const { res, hashes, pdfSha } = await postHappy({
+      people: [{ role: "ma", name: "Klug, J", days: DAYS }],
+    });
+    expect(res.status).toBe(200);
+
+    const hash = Array.from(hashes.keys())[0]!;
+    const snapshot = JSON.parse(
+      await readFile(join(env.dataDir, "rows", pdfSha, `${hash}.json`), "utf-8"),
+    );
+    expect(snapshot.columns).toEqual([]);
+  });
+
+  test("malformed day_columns → 400 schema", async () => {
+    const { res, body } = await postHappy({
+      day_columns: [{ date: "2026-05-15", x0: "left", x1: 0.52 }],
+      people: [{ role: "ma", name: "Klug, J", days: DAYS }],
+    });
+    expect(res.status).toBe(400);
+    expect(body.code).toBe("schema");
   });
 });
 

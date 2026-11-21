@@ -66,6 +66,21 @@ describe("parse(): Phase A — header, dates, months", () => {
   });
 });
 
+describe("parse(): day_columns geometry", () => {
+  test("one column per day, ordered, inside the page", async () => {
+    const r = await parse(await load(MARS_AVRIL));
+    const days = r.people[0]!.days;
+
+    expect(r.day_columns.map((c) => c.date)).toEqual(days.map((d) => d.date));
+    for (const [i, c] of r.day_columns.entries()) {
+      expect(c.x0).toBeGreaterThan(0);
+      expect(c.x1).toBeLessThan(1);
+      expect(c.x0).toBeLessThan(c.x1);
+      if (i > 0) expect(c.x0).toBeGreaterThanOrEqual(r.day_columns[i - 1]!.x1 - 1e-6);
+    }
+  });
+});
+
 describe("parse(): Phase B — people, cells, unknown codes", () => {
   test("two-month PDF: Klug, J row matches spec spot-checks", async () => {
     // Spec §"Spot-check assertions for 5_Mars2026_…" (lines 333–343).

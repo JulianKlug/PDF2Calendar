@@ -10,6 +10,7 @@
 
 import {
   ParseError,
+  type DayColumn,
   type PageDims,
   type ParseResult,
   type ParsedDay,
@@ -95,6 +96,7 @@ export function parsePages(
   // We process page-by-page, then concat columns and bands.
 
   let columns: Column[] = [];
+  const dayColumns: DayColumn[] = [];
   let headerBand: YBand | null = null;
   const warnings: ParseWarning[] = [];
   const allPageRows: PageRow[] = [];
@@ -109,6 +111,7 @@ export function parsePages(
     // Step 3.5: column → date
     const pageColumns = assignDates(page, dayRow, monthBands, warnings);
     columns.push(...pageColumns);
+    dayColumns.push(...toDayColumns(pageColumns, page.width));
 
     // First page sets the header_band; multi-page V1 uses page-1 bounds only
     // (renderer crops one canonical header).
@@ -179,6 +182,7 @@ export function parsePages(
     department: opts.department ?? null,
     date_range,
     header_band: headerBand,
+    day_columns: dayColumns,
     months,
     people,
     unknown_codes,
@@ -408,6 +412,17 @@ function assignDates(
     });
   }
   return columns;
+}
+
+// Column extents as page-width fractions. Same right-anchored geometry as
+// extractCells: a column spans [x_right - colWidth, x_right].
+function toDayColumns(pageColumns: Column[], pageWidth: number): DayColumn[] {
+  const colWidth = medianColWidth(pageColumns);
+  return pageColumns.map((c) => ({
+    date: columnDate(c),
+    x0: (c.x_right - colWidth) / pageWidth,
+    x1: c.x_right / pageWidth,
+  }));
 }
 
 // ─── Step 4: person rows ───────────────────────────────────────────────────

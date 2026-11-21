@@ -150,6 +150,9 @@ describe("populated", () => {
     expect(s.entries[0]!.row_url).toBe(
       `${BASE_URL}/source/abc/1111111111111111.png`,
     );
+    expect(s.entries[0]!.days_url).toBe(
+      `${BASE_URL}/source/abc/1111111111111111.json`,
+    );
     expect(s.entries[0]!.months).toEqual([{ year: 2026, month: 5 }]);
   });
 

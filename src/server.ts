@@ -20,6 +20,7 @@ import { isKnownCode, codes as V1_CODES_TABLE } from "./codes.ts";
 import { mergeIcs, type GenerateInput } from "./ics.ts";
 import { findColleagues } from "./colleagues.ts";
 import { ManifestCache } from "./manifest-cache.ts";
+import { daySnapshotPath, serializeDaySnapshot } from "./day-snapshot.ts";
 import type { ManifestEntry, Plan, PersonManifest } from "./types.ts";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -284,6 +285,8 @@ function validatePayload(json: unknown): UploadPayload {
     }
   }
 
+  if (p.day_columns !== undefined) validateDayColumns(p.day_columns);
+
   // V2: admin_password + original_filename are required. Wrong-value rejection
   // happens later (verifyAdminPassword → 401, sanitizeOriginalFilename → 400).
   if (!isString(p.admin_password) || p.admin_password.length === 0)
@@ -292,6 +295,15 @@ function validatePayload(json: unknown): UploadPayload {
     throw new BadRequest("schema", "original_filename missing or empty");
 
   return p as unknown as UploadPayload;
+}
+
+function validateDayColumns(v: unknown): void {
+  if (!Array.isArray(v)) throw new BadRequest("schema", "day_columns must be an array");
+  for (let i = 0; i < v.length; i++) {
+    const c = v[i] as Record<string, unknown>;
+    if (!isString(c?.date) || !DATE_RE.test(c.date) || !isNumber(c.x0) || !isNumber(c.x1))
+      throw new BadRequest("schema", `day_columns[${i}] malformed`);
+  }
 }
 
 // ─── per-request flow ─────────────────────────────────────────────────────
@@ -496,6 +508,15 @@ async function handleUpload(
       const rowFile = rowParts.get(person.person_hash)!;
       const rowBytes = new Uint8Array(await rowFile.arrayBuffer());
       await atomicWrite(target, rowBytes);
+    }
+
+    // Day snapshots — always rewritten so a re-upload from a newer client
+    // fills in column geometry an older upload lacked.
+    for (const person of payload.people) {
+      await atomicWrite(
+        daySnapshotPath(d.rows, payload.pdf_sha256, person.person_hash),
+        serializeDaySnapshot(person.days, payload.day_columns ?? []),
+      );
     }
 
     // Step 8 — per-person .ics + V2 manifest

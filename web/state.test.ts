@@ -47,6 +47,7 @@ const fakeParsed: ParseResult = {
   department: null,
   date_range: { start: "2026-05-01", end: "2026-05-31" },
   header_band: { page: 1, y_top: 580, y_bottom: 540 },
+  day_columns: [],
   months: [{ year: 2026, month: 5, days_covered: [1, 2, 3] }],
   people: [
     {

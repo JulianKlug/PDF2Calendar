@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   buildMultipart,
+  fetchDaySnapshot,
   MAX_PAYLOAD_BYTES,
   UploadError,
   uploadToServer,
@@ -309,5 +310,35 @@ describe("uploadToServer", () => {
     await uploadToServer(fd(), "");
     expect(capturedHeaders).not.toBeNull();
     expect(capturedHeaders!["x-pdf2cal-admin"]).toBe("1");
+  });
+});
+
+// ─── fetchDaySnapshot ────────────────────────────────────────────────────
+
+describe("fetchDaySnapshot", () => {
+  const SNAPSHOT = {
+    schema_version: 1 as const,
+    days: [{ date: "2026-11-01", codes: ["D"] }],
+    columns: [{ date: "2026-11-01", x0: 0.2, x1: 0.22 }],
+  };
+
+  test("200 → parsed snapshot", async () => {
+    mockFetch(() => Response.json(SNAPSHOT));
+    expect(await fetchDaySnapshot("https://x/source/a/b.json")).toEqual(SNAPSHOT);
+  });
+
+  test("404 (upload predates snapshots) → null", async () => {
+    mockFetch(() => new Response("nope", { status: 404 }));
+    expect(await fetchDaySnapshot("https://x/source/a/b.json")).toBeNull();
+  });
+
+  test("network failure → null", async () => {
+    mockFetch(() => Promise.reject(new TypeError("offline")));
+    expect(await fetchDaySnapshot("https://x/source/a/b.json")).toBeNull();
+  });
+
+  test("unknown schema_version → null", async () => {
+    mockFetch(() => Response.json({ ...SNAPSHOT, schema_version: 99 }));
+    expect(await fetchDaySnapshot("https://x/source/a/b.json")).toBeNull();
   });
 });

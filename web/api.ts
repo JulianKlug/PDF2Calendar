@@ -3,7 +3,12 @@
 // The frontend produces exactly one HTTP call. `payload` is the source of truth
 // for the upload shape; the server re-derives every hash from it.
 
-import type { ParsedDay } from "../src/types.ts";
+import {
+  DAY_SNAPSHOT_SCHEMA_VERSION,
+  type DayColumn,
+  type DaySnapshot,
+  type ParsedDay,
+} from "../src/types.ts";
 import type { ErrorCause } from "./state.ts";
 
 export type UploadPayload = {
@@ -23,6 +28,8 @@ export type UploadPayload = {
   // is added in commit 5 (validatePayload + verifyAdminPassword).
   admin_password?: string;
   original_filename?: string;
+  // Optional: older clients omit it; the snapshot then has no geometry.
+  day_columns?: DayColumn[];
 };
 
 export type UploadResponseFeed = {
@@ -170,4 +177,21 @@ export async function uploadToServer(
   }
 
   return (await res.json()) as UploadResponse;
+}
+
+// One person's shifts for one upload (manifest entry's days_url). Returns
+// null when unavailable — uploads older than the snapshot feature 404 until
+// backfilled — so the caller shows "no data" instead of failing.
+export async function fetchDaySnapshot(url: string): Promise<DaySnapshot | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+
+    const body = (await res.json()) as Partial<DaySnapshot>;
+    if (body?.schema_version !== DAY_SNAPSHOT_SCHEMA_VERSION) return null;
+    if (!Array.isArray(body.days) || !Array.isArray(body.columns)) return null;
+    return body as DaySnapshot;
+  } catch {
+    return null;
+  }
 }

@@ -9,6 +9,8 @@ import {
   type ParseErrorCode,
   type ParseResult,
   type ParseWarning,
+  type DayColumn,
+  type DaySnapshot,
 } from "../src/types.ts";
 import { parse } from "../src/parser.ts";
 // pdfjs worker — set workerSrc once before any getDocument() call so the
@@ -21,6 +23,7 @@ import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 import {
   buildMultipart,
+  fetchDaySnapshot,
   MAX_PAYLOAD_BYTES,
   UploadError,
   uploadToServer,
@@ -38,6 +41,12 @@ import { findOverlappingPlans } from "./plan-overlap.ts";
 import { selectPreviewEntries } from "./preview-entries.ts";
 import { renderRowImages, type RowJob } from "./row-image.ts";
 import { renderSubscribeHelpButton } from "./subscribe-help.ts";
+import {
+  compareTargetsFor,
+  diffMonth,
+  type CompareTarget,
+  type DayChange,
+} from "./version-diff.ts";
 import {
   canDrop,
   initialState,
@@ -693,6 +702,7 @@ function groupStaffByRole(staff: ManifestStaffEntry[]): StaffListGroup[] {
         previewEntriesFor(s).map((e) => ({
           url: e.row_url,
           caption: `${monthName(e.months[0]?.month ?? 0)} ${e.months[0]?.year ?? ""} · ${e.original_filename}`,
+          compare: { latest: e, targets: compareTargetsFor(s.entries, e) },
         })),
         s.name,
         opener,
@@ -943,7 +953,14 @@ function parseErrorCopy(code: ParseErrorCode): { detail: string; action: string 
 // Shared: focus-trap, Escape, click-backdrop-to-close, restore focus to
 // the opener button.
 
-type EntryView = { url: string; caption: string };
+type StaffEntry = ManifestStaffEntry["entries"][number];
+
+type EntryView = {
+  url: string;
+  caption: string;
+  // Landing lightbox only: per-month compare against older uploads.
+  compare?: { latest: StaffEntry; targets: CompareTarget<StaffEntry>[] };
+};
 
 let openLightboxState: {
   blobUrls: string[]; // URLs to revoke on close (Blob mode only)
@@ -1003,11 +1020,19 @@ function openLightboxInternal(
     img.alt = entry.caption;
     img.loading = "lazy";
     img.src = entry.url;
-    fig.appendChild(img);
+    // Frame = positioning context for compare highlights over the image.
+    const frame = el("div", { class: "lightbox-frame" });
+    frame.appendChild(img);
+    fig.appendChild(frame);
     const caption = document.createElement("figcaption");
     caption.className = "lightbox-caption";
     caption.textContent = entry.caption;
     fig.appendChild(caption);
+    if (entry.compare && entry.compare.targets.length > 0) {
+      fig.appendChild(
+        renderCompareControls(entry.compare.latest, entry.compare.targets, frame),
+      );
+    }
     stack.appendChild(fig);
   }
   backdrop.appendChild(stack);
@@ -1028,11 +1053,7 @@ function openLightboxInternal(
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") close();
-    // Simple focus trap: only the close button is focusable inside the dialog.
-    if (e.key === "Tab") {
-      e.preventDefault();
-      closeBtn.focus();
-    }
+    if (e.key === "Tab") trapFocus(e, backdrop);
   };
   document.addEventListener("keydown", onKey);
 
@@ -1040,6 +1061,224 @@ function openLightboxInternal(
   closeBtn.focus();
 
   openLightboxState = { blobUrls, backdrop, closeBtn, opener, onKey };
+}
+
+// Keep Tab cycling inside the dialog (compare buttons, selects, close).
+function trapFocus(e: KeyboardEvent, container: HTMLElement): void {
+  const focusable = [
+    ...container.querySelectorAll<HTMLElement>("button, select"),
+  ].filter((node) => node.offsetParent !== null);
+  if (focusable.length === 0) return;
+
+  const first = focusable[0]!;
+  const last = focusable.at(-1)!;
+  const active = document.activeElement as HTMLElement | null;
+  const inside = active !== null && focusable.includes(active);
+
+  if (!inside) {
+    e.preventDefault();
+    first.focus();
+    return;
+  }
+  if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+// ─── Version compare (landing lightbox) ──────────────────────────────────
+//
+//   [Compare November with earlier versions]   ← one button per month
+//   ┌ panel ─────────────────────────────────┐
+//   │ Compare with: [12 Oct 2026 · v1.pdf ▾] │
+//   │ 2 days changed for you in November     │
+//   │ • Tue 3 Nov: V → —                     │
+//   │ [older row image, changed days marked] │
+//   └────────────────────────────────────────┘
+//   Changed days are also marked on the latest row image above.
+
+const EMPTY_CELL = "—";
+
+// days_url → snapshot. Snapshots are immutable per upload, so cache for the
+// page lifetime.
+const snapshotCache = new Map<string, Promise<DaySnapshot | null>>();
+
+function loadSnapshot(url: string): Promise<DaySnapshot | null> {
+  let pending = snapshotCache.get(url);
+  if (!pending) {
+    pending = fetchDaySnapshot(url);
+    snapshotCache.set(url, pending);
+  }
+  return pending;
+}
+
+function renderCompareControls(
+  latest: StaffEntry,
+  targets: CompareTarget<StaffEntry>[],
+  latestFrame: HTMLElement,
+): HTMLElement {
+  const wrap = el("div", { class: "compare" });
+  const buttons = el("div", { class: "compare-buttons" });
+  const panel = el("div", { class: "compare-panel" });
+  panel.hidden = true;
+
+  for (const target of targets) {
+    const btn = el("button", {
+      class: "btn btn-quiet compare-btn",
+      type: "button",
+    }) as HTMLButtonElement;
+    btn.textContent = `Compare ${monthName(target.month.month)} with earlier versions`;
+    btn.addEventListener("click", () =>
+      openComparePanel(panel, latest, target, latestFrame),
+    );
+    buttons.appendChild(btn);
+  }
+
+  wrap.appendChild(buttons);
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+function openComparePanel(
+  panel: HTMLElement,
+  latest: StaffEntry,
+  target: CompareTarget<StaffEntry>,
+  latestFrame: HTMLElement,
+): void {
+  panel.replaceChildren();
+  panel.hidden = false;
+
+  const label = el("label", { class: "compare-label" });
+  label.textContent = `${monthName(target.month.month)} ${target.month.year} — compare with `;
+  const select = el("select", { class: "compare-select" }) as HTMLSelectElement;
+  target.older.forEach((entry, i) => {
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = `${formatTimestamp(entry.uploaded_at)} · ${entry.original_filename}`;
+    select.appendChild(option);
+  });
+  label.appendChild(select);
+  panel.appendChild(label);
+
+  const result = el("div", { class: "compare-result" });
+  panel.appendChild(result);
+
+  const show = () => {
+    const older = target.older[Number(select.value)]!;
+    void renderCompareResult(result, latest, older, target.month, latestFrame);
+  };
+  select.addEventListener("change", show);
+  show();
+  select.focus();
+}
+
+let compareRequest = 0;
+
+async function renderCompareResult(
+  result: HTMLElement,
+  latest: StaffEntry,
+  older: StaffEntry,
+  month: { year: number; month: number },
+  latestFrame: HTMLElement,
+): Promise<void> {
+  // Ignore responses superseded by a newer selection.
+  const request = ++compareRequest;
+  clearMarks(latestFrame);
+  result.textContent = "Loading…";
+
+  const [latestSnap, olderSnap] = await Promise.all([
+    loadSnapshot(latest.days_url),
+    loadSnapshot(older.days_url),
+  ]);
+  if (request !== compareRequest) return;
+
+  if (!latestSnap || !olderSnap) {
+    result.textContent = "Shift details aren't available for this version.";
+    return;
+  }
+
+  const changes = diffMonth(latestSnap, olderSnap, month);
+  result.replaceChildren();
+
+  const summary = el("p", { class: "compare-summary" });
+  summary.textContent =
+    changes.length === 0
+      ? `No changes for you in ${monthName(month.month)}.`
+      : `${changes.length} day${changes.length === 1 ? "" : "s"} changed for you in ${monthName(month.month)}.`;
+  result.appendChild(summary);
+  if (changes.length === 0) return;
+
+  result.appendChild(renderChangeList(changes));
+  markChanges(latestFrame, latestSnap.columns, changes);
+
+  // Older row, with the same days marked.
+  const fig = document.createElement("figure");
+  fig.className = "compare-older";
+  const frame = el("div", { class: "lightbox-frame" });
+  const img = document.createElement("img");
+  img.className = "lightbox-img";
+  img.alt = `Earlier row — ${older.original_filename}`;
+  img.src = older.row_url;
+  frame.appendChild(img);
+  markChanges(frame, olderSnap.columns, changes);
+  fig.appendChild(frame);
+  const caption = document.createElement("figcaption");
+  caption.className = "lightbox-caption";
+  caption.textContent = `Earlier: ${older.original_filename} — uploaded ${formatTimestamp(older.uploaded_at)}`;
+  fig.appendChild(caption);
+  result.appendChild(fig);
+}
+
+// "Tue 3 Nov: V → —"
+function renderChangeList(changes: DayChange[]): HTMLElement {
+  const list = el("ul", { class: "compare-list" });
+  for (const change of changes) {
+    const item = document.createElement("li");
+    item.textContent = `${formatDay(change.date)}: ${formatCell(change.before)} → ${formatCell(change.after)}`;
+    list.appendChild(item);
+  }
+  return list;
+}
+
+// Overlay a translucent band on each changed day's column.
+function markChanges(
+  frame: HTMLElement,
+  columns: DayColumn[],
+  changes: DayChange[],
+): void {
+  const changed = new Set(changes.map((c) => c.date));
+  for (const column of columns) {
+    if (!changed.has(column.date)) continue;
+
+    const mark = el("div", { class: "compare-mark" });
+    mark.style.left = `${column.x0 * 100}%`;
+    mark.style.width = `${(column.x1 - column.x0) * 100}%`;
+    frame.appendChild(mark);
+  }
+}
+
+function clearMarks(frame: HTMLElement): void {
+  for (const mark of frame.querySelectorAll(".compare-mark")) mark.remove();
+}
+
+function formatCell(codes: string[]): string {
+  return codes.length === 0 ? EMPTY_CELL : codes.join(" ");
+}
+
+// "2026-11-03" → "Tue 3 Nov"
+function formatDay(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return date;
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 function closeLightbox(): void {
@@ -1191,6 +1430,7 @@ async function proceedWithUpload(
         person_hash: hashes[i]!,
         days: p.days,
       })),
+      day_columns: s.parsed.day_columns,
     };
     const { formData, totalBytes } = buildMultipart(
       payload,

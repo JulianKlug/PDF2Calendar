@@ -132,6 +132,15 @@ systemctl status pdf2calendar --no-pager
 curl -fsS https://<host>/healthz
 ```
 
+One-off after the version-compare release: write day snapshots for plans
+uploaded before it, so they can be compared. Idempotent.
+
+```sh
+cd /opt/pdf2calendar
+sudo -u pdf2calendar PDF2CAL_DATA_DIR=/var/lib/pdf2calendar \
+  PDF2CAL_DEPARTMENT_SLUG=<slug> bun scripts/backfill-day-snapshots.ts
+```
+
 `<slug>` must match `PDF2CAL_DEPARTMENT_SLUG` in the systemd unit — drift
 breaks every `person_hash` and every upload 400s. The build reads
 `process.env` directly, so a `.env.production` file alone won't satisfy it.

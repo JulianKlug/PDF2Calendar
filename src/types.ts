@@ -13,6 +13,9 @@ export type ParseResult = {
   // month band + day numbers + weekday letters. Used by the row-image
   // renderer to crop "header + person row" PNGs.
   header_band: YBand;
+  // Horizontal extent of every day column, in column order. Lets the
+  // version-compare view highlight changed days on the row PNG.
+  day_columns: DayColumn[];
   months: ParsedMonth[];
   people: ParsedPerson[];
   unknown_codes: string[];
@@ -29,6 +32,14 @@ export type YBand = {
   page: number;
   y_top: number;
   y_bottom: number;
+};
+
+// x0/x1 are fractions of the page width (0..1), so they map directly onto
+// the row PNG at any render scale. e.g. { date: "2026-05-01", x0: 0.21, x1: 0.24 }
+export type DayColumn = {
+  date: string;
+  x0: number;
+  x1: number;
 };
 
 export type ParsedMonth = {
@@ -152,6 +163,7 @@ export type ManifestStaffEntry = {
     uploaded_at: string;
     months: Array<{ year: number; month: number }>;
     row_url: string;
+    days_url: string;
   }>;
 };
 
@@ -161,4 +173,15 @@ export type ManifestResponse = {
   latest_plan: ManifestPlanInfo | null;
   plans: ManifestPlanInfo[];
   staff: ManifestStaffEntry[];
+};
+
+// One person's shifts as parsed from one upload. Written next to the row PNG
+// at rows/<pdf_sha256>/<person_hash>.json and served at the entry's days_url.
+// Old uploads may lack it (404) until backfilled.
+export const DAY_SNAPSHOT_SCHEMA_VERSION = 1;
+
+export type DaySnapshot = {
+  schema_version: typeof DAY_SNAPSHOT_SCHEMA_VERSION;
+  days: ParsedDay[];
+  columns: DayColumn[];
 };

@@ -106,6 +106,7 @@ export class ManifestCache {
           uploaded_at: e.uploaded_at,
           months: e.months,
           row_url: `${this.opts.baseUrl}/source/${e.pdf_sha256}/${person_hash}.png`,
+          days_url: `${this.opts.baseUrl}/source/${e.pdf_sha256}/${person_hash}.json`,
         })),
       });
     }
